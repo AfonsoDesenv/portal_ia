@@ -20,7 +20,7 @@ export class Git {
   ) {}
 
   private raw(args: string[], input?: string) {
-    return this.run(this.env, this.cwd, 'git', ['-c', 'core.quotepath=false', ...args], input === undefined ? undefined : { input });
+    return this.run(this.env, this.cwd, 'git', ['--literal-pathspecs', '-c', 'core.quotepath=false', ...args], input === undefined ? undefined : { input });
   }
 
   private async ok(args: string[]): Promise<string> {

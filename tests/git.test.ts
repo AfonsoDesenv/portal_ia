@@ -112,6 +112,22 @@ describe('Git', () => {
     }
   });
 
+  it('pathspecs são literais: commit de [id].tsx não leva i.tsx', async () => {
+    writeFileSync(join(dir, '[id].tsx'), 'a\n');
+    writeFileSync(join(dir, 'i.tsx'), 'b\n');
+    await git.commit(['[id].tsx'], 'só colchetes');
+    const show = (await sh(['show', '--name-only', '--format=', 'HEAD'])).stdout.split('\n').filter(Boolean);
+    expect(show).toEqual(['[id].tsx']);
+    const st = await git.status();
+    expect(st.map((f) => [f.path, f.index])).toEqual([['i.tsx', '?']]);
+  });
+
+  it('pathspec mágico (:/) é tratado como nome literal', async () => {
+    writeFileSync(join(dir, 'a.txt'), 'a\n');
+    await expect(git.commit([':/'], 'magia')).rejects.toBeInstanceOf(GitError);
+    expect((await git.status()).map((f) => f.path)).toEqual(['a.txt']);
+  });
+
   it('push sem remoto', async () => {
     writeFileSync(join(dir, 'a.txt'), 'a\n');
     await git.commit(['a.txt'], 'a');
