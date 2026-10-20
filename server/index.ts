@@ -16,9 +16,10 @@ import { StatusWatcher } from './sessions/hooks.js';
 import { SessionService } from './sessions/sessions.js';
 
 const config = loadConfig();
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(root, 'dist', 'web');
-const webDir = existsSync(join(dist, 'index.html')) ? dist : undefined;
+const here = dirname(fileURLToPath(import.meta.url));
+// Via tsx (server/) o front fica em ../dist/web; compilado (dist/server/) fica em ../web.
+const dist = [resolve(here, '..', 'dist', 'web'), resolve(here, '..', 'web')].find((d) => existsSync(join(d, 'index.html')));
+const webDir = dist;
 if (!webDir) console.warn('Front não compilado: rode "npm run build". Só a API está disponível.');
 const store = Store.open(join(config.dataDir, 'state.json'));
 const github = new GitHub(runIn);
