@@ -112,7 +112,7 @@ export class SessionService extends EventEmitter {
     return { ...rec, alive: rt?.alive ?? false, status: rt?.alive ? rt.status : 'parado' };
   }
 
-  private emitEvent(ev: ServerEvent): void {
+  emitEvent(ev: ServerEvent): void {
     this.emit('event', ev);
   }
 
