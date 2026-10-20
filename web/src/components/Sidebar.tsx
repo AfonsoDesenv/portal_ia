@@ -2,7 +2,7 @@ import { useApp, aggregateStatus } from '../store';
 import { StatusDot } from './StatusDot';
 
 export function Sidebar({ onNew, onQuick }: { onNew: () => void; onQuick: () => void }) {
-  const { projects, openIds, activeId, sessions, activate, closeProject } = useApp();
+  const { projects, openIds, activeId, sessions, activate, requestCloseProject } = useApp();
   const open = openIds.map((id) => projects.find((p) => p.id === id)).filter((p) => !!p);
 
   return (
@@ -22,7 +22,7 @@ export function Sidebar({ onNew, onQuick }: { onNew: () => void; onQuick: () => 
               <span className="proj-name">{p.name}</span>
               <span className={`badge badge-${p.env === 'windows' ? 'win' : 'wsl'}`}>{p.env === 'windows' ? 'Win' : 'WSL'}</span>
             </button>
-            <button className="close" aria-label={`Fechar ${p.name}`} onClick={() => closeProject(p.id)}>×</button>
+            <button className="close" aria-label={`Fechar ${p.name}`} onClick={() => requestCloseProject(p.id)}>×</button>
             {p.missing && <div className="missing">pasta não encontrada</div>}
           </li>
         ))}

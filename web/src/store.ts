@@ -16,6 +16,10 @@ export interface AppState {
   activeId: string | null;
   sessions: Record<string, SessionInfo[]>;
   mode: Record<string, Mode>;
+  /** Contador por sessão, incrementado quando ela volta a viver (retomada): o terminal reconecta. */
+  generation: Record<string, number>;
+  /** Contador por projeto, incrementado em git-changed. */
+  gitTick: Record<string, number>;
   loaded: boolean;
   load: () => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -24,6 +28,8 @@ export interface AppState {
   closeProject: (id: string) => Promise<void>;
   setMode: (id: string, m: Mode) => void;
   applyEvent: (e: ServerEvent) => void;
+  /** Fecha o projeto pedindo confirmação se houver sessão trabalhando. */
+  requestCloseProject: (id: string) => Promise<void>;
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -36,6 +42,8 @@ export const useApp = create<AppState>((set, get) => {
     activeId: null,
     sessions: {},
     mode: {},
+    generation: {},
+    gitTick: {},
     loaded: false,
 
     async load() {
@@ -75,13 +83,26 @@ export const useApp = create<AppState>((set, get) => {
       set((s) => ({ mode: { ...s.mode, [id]: m } }));
     },
 
+    async requestCloseProject(id) {
+      const busy = (get().sessions[id] ?? []).some((x) => x.status === 'trabalhando');
+      if (busy && !window.confirm('Há sessões trabalhando neste projeto. Fechar mesmo assim?')) return;
+      await get().closeProject(id);
+    },
+
     applyEvent(e) {
-      if (e.type === 'session') {
+      if (e.type === 'git-changed') {
+        set((s) => ({ gitTick: { ...s.gitTick, [e.projectId]: (s.gitTick[e.projectId] ?? 0) + 1 } }));
+      } else if (e.type === 'session') {
         const sess = e.session;
         set((s) => {
           const list = s.sessions[sess.projectId] ?? [];
-          const next = list.some((x) => x.id === sess.id) ? list.map((x) => (x.id === sess.id ? sess : x)) : [...list, sess];
-          return { sessions: { ...s.sessions, [sess.projectId]: next } };
+          const old = list.find((x) => x.id === sess.id);
+          const next = old ? list.map((x) => (x.id === sess.id ? sess : x)) : [...list, sess];
+          const revived = old && !old.alive && sess.alive;
+          return {
+            sessions: { ...s.sessions, [sess.projectId]: next },
+            generation: revived ? { ...s.generation, [sess.id]: (s.generation[sess.id] ?? 0) + 1 } : s.generation,
+          };
         });
       } else if (e.type === 'session-removed') {
         set((s) => ({

@@ -3,10 +3,11 @@ import { useApp } from './store';
 import { connectEvents } from './events';
 import { Sidebar } from './components/Sidebar';
 import { QuickOpen } from './components/QuickOpen';
+import { ProjectView } from './components/ProjectView';
 import { NewProjectDialog } from './components/NewProjectDialog';
 
 export function App() {
-  const { load, refreshProjects, applyEvent, openProject, projects, activeId, loaded } = useApp();
+  const { load, refreshProjects, applyEvent, openProject, projects, openIds, activeId, loaded } = useApp();
   const [quick, setQuick] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -35,11 +36,11 @@ export function App() {
       <Sidebar onNew={() => setCreating(true)} onQuick={() => setQuick(true)} />
       <main className="main">
         {error && <div className="notice error">{error}</div>}
-        {active ? (
-          <div className="placeholder">Projeto {active.name}</div>
-        ) : (
-          <div className="placeholder muted">{loaded ? 'Abra um projeto com Ctrl+P ou crie um novo.' : 'Carregando…'}</div>
-        )}
+        {openIds.map((id) => {
+          const p = projects.find((x) => x.id === id);
+          return p ? <ProjectView key={id} project={p} visible={id === activeId} /> : null;
+        })}
+        {!active && <div className="placeholder muted">{loaded ? 'Abra um projeto com Ctrl+P ou crie um novo.' : 'Carregando…'}</div>}
       </main>
       {quick && <QuickOpen onClose={() => setQuick(false)} />}
       {creating && (
