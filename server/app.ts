@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
 import { registerAuth } from './auth.js';
 import type { Config } from './config.js';
 import type { SessionService } from './sessions/sessions.js';
@@ -24,6 +25,8 @@ export interface AppDeps {
   listEnvs?: () => Promise<EnvId[]>;
   detectTools?: (env: EnvId) => Promise<EnvTools>;
   launchVsCode?: (p: Project) => void;
+  /** Pasta do front compilado (dist/web). Sem ela, só a API é servida. */
+  webDir?: string;
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
@@ -42,6 +45,17 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         registerGitRoutes(scope, { store, gitFor, emit: (e) => sessions.emitEvent(e) });
         registerEnvRoutes(scope, { config: deps.config, github, listEnvs, detectTools });
       }
+    });
+  }
+  if (deps.webDir) {
+    // Atrás da auth (hook global). Serve os arquivos e cai no index.html para rotas do SPA.
+    app.register(fastifyStatic, { root: deps.webDir });
+    app.setNotFoundHandler((req, reply) => {
+      const path = req.url.split('?')[0];
+      if (req.method === 'GET' && !path.startsWith('/api') && !path.startsWith('/ws')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'Não encontrado' });
     });
   }
   return app;

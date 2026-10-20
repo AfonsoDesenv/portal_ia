@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { Store } from './store/store.js';
@@ -14,6 +16,10 @@ import { StatusWatcher } from './sessions/hooks.js';
 import { SessionService } from './sessions/sessions.js';
 
 const config = loadConfig();
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const dist = join(root, 'dist', 'web');
+const webDir = existsSync(join(dist, 'index.html')) ? dist : undefined;
+if (!webDir) console.warn('Front não compilado: rode "npm run build". Só a API está disponível.');
 const store = Store.open(join(config.dataDir, 'state.json'));
 const github = new GitHub(runIn);
 const projects = new ProjectService({ store, run: runIn, github, config });
@@ -36,6 +42,7 @@ const app = buildApp({
   gitFor: (p) => new Git(runIn, p.env, p.path),
   listEnvs: listEnvironments,
   detectTools: (env) => detectTools(env, runIn),
+  webDir,
 });
 
 await app.listen({ host: '127.0.0.1', port: config.port });
