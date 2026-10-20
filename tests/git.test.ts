@@ -66,6 +66,20 @@ describe('Git', () => {
     expect((await git.branches()).local.sort()).toEqual(['hotfix/x', 'main']);
   });
 
+  it('checkout troca de branch, rejeita opção e árvore suja conflitante', async () => {
+    writeFileSync(join(dir, 'a.txt'), 'a\n');
+    await git.commit(['a.txt'], 'a');
+    await git.createBranch('dev', 'main');
+    writeFileSync(join(dir, 'a.txt'), 'dev\n');
+    await git.commit(['a.txt'], 'dev change');
+    await git.checkout('main');
+    expect(await git.currentBranch()).toBe('main');
+    await expect(git.checkout('--detach')).rejects.toBeInstanceOf(GitError);
+    writeFileSync(join(dir, 'a.txt'), 'sujo\n');
+    await expect(git.checkout('dev')).rejects.toBeInstanceOf(GitError);
+    expect(await git.currentBranch()).toBe('main');
+  });
+
   it('push com remoto sem upstream', async () => {
     writeFileSync(join(dir, 'a.txt'), 'a\n');
     await git.commit(['a.txt'], 'a');

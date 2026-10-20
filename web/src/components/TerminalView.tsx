@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { isPortalShortcut } from '../lib/shortcuts';
 
 const THEME = {
   background: '#1e1e1e', foreground: '#cccccc', cursor: '#cccccc', selectionBackground: '#264f78',
@@ -22,6 +23,8 @@ export function TerminalView({ sessionId }: { sessionId: string }) {
     const term = new Terminal({ fontFamily: 'Consolas, "Cascadia Mono", monospace', fontSize: 13, cursorBlink: true, theme: THEME, scrollback: 5000 });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // false = o xterm ignora a tecla e o evento chega ao listener global do portal
+    term.attachCustomKeyEventHandler((e) => !isPortalShortcut(e));
     term.open(el);
 
     let ws: WebSocket | null = null;

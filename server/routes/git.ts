@@ -5,7 +5,7 @@ import type { Store } from '../store/store.js';
 import type { Project, ServerEvent } from '../types.js';
 import { erro, findProject, unknownProject } from './util.js';
 
-export type GitLike = Pick<Git, 'status' | 'branches' | 'currentBranch' | 'createBranch' | 'fileVersions' | 'commit' | 'push'>;
+export type GitLike = Pick<Git, 'status' | 'branches' | 'currentBranch' | 'createBranch' | 'checkout' | 'fileVersions' | 'commit' | 'push'>;
 
 export interface GitRouteDeps {
   store: Store;
@@ -68,6 +68,22 @@ export function registerGitRoutes(app: FastifyInstance, d: GitRouteDeps): void {
     if (!ok) return reply;
     d.emit({ type: 'git-changed', projectId: p.id });
     return { branch: name.trim() };
+  });
+
+  app.post<{ Params: { id: string }; Body: { branch?: unknown } }>(`${base}/checkout`, async (req, reply) => {
+    const p = findProject(d.store, req.params.id);
+    if (!p) return unknownProject(reply);
+    const branch = req.body?.branch;
+    if (typeof branch !== 'string' || !branch.trim() || branch.startsWith('-')) {
+      return erro(reply, 400, 'invalido', 'informe uma branch válida');
+    }
+    const ok = await guarded(reply, async () => {
+      await d.gitFor(p).checkout(branch.trim());
+      return true;
+    });
+    if (!ok) return reply;
+    d.emit({ type: 'git-changed', projectId: p.id });
+    return { branch: branch.trim() };
   });
 
   app.get<{ Params: { id: string }; Querystring: { path?: string } }>(`${base}/file`, async (req, reply) => {

@@ -58,6 +58,12 @@ export class Git {
     await this.ok(['switch', '-c', name, from]);
   }
 
+  /** Troca para uma branch LOCAL. Falhas do git (ex.: árvore suja) viram GitError com a mensagem do git. */
+  async checkout(branch: string): Promise<void> {
+    if (!branch.trim() || branch.startsWith('-')) throw new GitError('nome de branch inválido');
+    await this.ok(['switch', branch]);
+  }
+
   private async hasHead(): Promise<boolean> {
     return (await this.raw(['rev-parse', '--verify', '-q', 'HEAD'])).code === 0;
   }

@@ -79,6 +79,10 @@ beforeEach(() => {
       currentBranch: async () => 'main',
       branches: async () => ({ local: ['main'], remote: [] }),
       createBranch: async (n: string, f: string) => void gitCalls.push(`branch ${n} ${f}`),
+      checkout: async (b: string) => {
+        if (b === 'sujo') throw new GitError('suas alterações seriam sobrescritas');
+        gitCalls.push(`checkout ${b}`);
+      },
       fileVersions: async (p: string) => {
         gitCalls.push(`file ${p}`);
         return { original: '', modified: 'a', binary: false };
@@ -156,6 +160,17 @@ describe('rotas de git', () => {
     expect(events).toContainEqual({ type: 'git-changed', projectId: 'p1' });
     expect((await call('GET', '/api/projects/p1/git/status')).json()).toEqual({ branch: 'main', files: [] });
     expect((await call('GET', '/api/projects/p1/git/branches')).json().local).toEqual(['main']);
+  });
+
+  it('checkout emite git-changed; erro do git vira 409 com a mensagem', async () => {
+    const r = await call('POST', '/api/projects/p1/git/checkout', { branch: 'dev' });
+    expect(r.statusCode).toBe(200);
+    expect(gitCalls).toContain('checkout dev');
+    expect(events).toContainEqual({ type: 'git-changed', projectId: 'p1' });
+    const bad = await call('POST', '/api/projects/p1/git/checkout', { branch: 'sujo' });
+    expect(bad.statusCode).toBe(409);
+    expect(bad.json()).toMatchObject({ erro: 'git', mensagem: 'suas alterações seriam sobrescritas' });
+    expect((await call('POST', '/api/projects/p1/git/checkout', { branch: '-f' })).statusCode).toBe(400);
   });
 
   it('projeto desconhecido é 404', async () => {

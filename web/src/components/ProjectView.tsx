@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProjectView as Project, SessionInfo, SessionKind } from '@shared';
 import { ApiError, api } from '../api';
 import { useApp } from '../store';
@@ -18,6 +18,8 @@ export function ProjectView({ project, visible }: { project: Project; visible: b
   const [error, setError] = useState('');
   const [split, setSplit] = useState(0.3); // fração da altura para os terminais
   const centerRef = useRef<HTMLDivElement>(null);
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []); // desmontar no meio do arrasto
 
   const claude = sessions.filter((s) => s.kind === 'claude');
   const shells = sessions.filter((s) => s.kind === 'shell');
@@ -76,9 +78,14 @@ export function ProjectView({ project, visible }: { project: Project; visible: b
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      stopDrag.current = null;
     };
+    stopDrag.current?.();
+    stopDrag.current = up;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   const pane = (kind: SessionKind, list: SessionInfo[], newLabel: string, empty: string, small?: boolean) => (

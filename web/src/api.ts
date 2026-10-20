@@ -57,6 +57,8 @@ export const api = {
   branches: (projectId: string) => call<BranchesInfo>('GET', `/api/projects/${encodeURIComponent(projectId)}/git/branches`),
   createBranch: (projectId: string, name: string, from: string) =>
     call<{ branch: string }>('POST', `/api/projects/${encodeURIComponent(projectId)}/git/branches`, { name, from }),
+  checkout: (projectId: string, branch: string) =>
+    call<{ branch: string }>('POST', `/api/projects/${encodeURIComponent(projectId)}/git/checkout`, { branch }),
   openVsCode: (projectId: string) => call<{ ok: true }>('POST', `/api/projects/${encodeURIComponent(projectId)}/vscode`),
   removeProject: (id: string) => call<void>('DELETE', `/api/projects/${encodeURIComponent(id)}`),
 };

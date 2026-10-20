@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from './store';
 import { connectEvents } from './events';
+import { isPortalShortcut } from './lib/shortcuts';
 import { Sidebar } from './components/Sidebar';
 import { QuickOpen } from './components/QuickOpen';
 import { ProjectView } from './components/ProjectView';
@@ -20,13 +21,13 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
+      if (isPortalShortcut(e) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setQuick(true);
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
   }, []);
 
   const active = projects.find((p) => p.id === activeId);
