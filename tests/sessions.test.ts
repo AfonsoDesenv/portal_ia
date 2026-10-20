@@ -74,16 +74,24 @@ let claudeOk: boolean;
 let project: ProjectView;
 let svc: SessionService;
 let clock: number;
+let toolsGate: Promise<void> | null;
+let listGate: Promise<void> | null;
 
 function make(store = Store.open(storeFile)) {
   return new SessionService({
     store,
-    projects: { list: async () => [project] },
+    projects: {
+      list: async () => {
+        await listGate;
+        return [project];
+      },
+    },
     config,
     pty,
     watcher,
     detectTools: async (env: EnvId): Promise<EnvTools> => {
       toolsCalls++;
+      await toolsGate;
       return { env, git: true, claude: claudeOk, gh: false, ghLoggedIn: false };
     },
     buildLaunch: (p) => {
@@ -104,6 +112,8 @@ beforeEach(() => {
   toolsCalls = 0;
   claudeOk = true;
   clock = 1000;
+  toolsGate = null;
+  listGate = null;
   project = { id: 'p1', name: 'x', env: 'windows', path: dir, createdAt: '', missing: false };
   svc = make();
 });
@@ -236,6 +246,50 @@ describe('SessionService', () => {
     expect(events).toEqual([{ type: 'session-removed', id: s.id }]);
     expect(make().list('p1')).toHaveLength(0);
     expect(pty.isAlive(s.id)).toBe(false);
+  });
+
+  it('close durante o start não deixa processo órfão (create)', async () => {
+    let release!: () => void;
+    toolsGate = new Promise<void>((r) => (release = r));
+    const p = svc.create('p1', 'claude');
+    const rejected = expect(p).rejects.toThrow(/fechada/);
+    await new Promise((r) => setTimeout(r, 10));
+    const [rec] = svc.list('p1');
+    svc.close(rec.id);
+    release();
+    await rejected;
+    expect(pty.spawns).toHaveLength(0);
+    expect(watcher.watched).toHaveLength(0);
+    expect(svc.list('p1')).toHaveLength(0);
+  });
+
+  it('close durante o resume não deixa processo órfão', async () => {
+    const s = await svc.create('p1', 'claude');
+    watcher.emit('claude-id', s.id, 'c1');
+    pty.finish(s.id, 0);
+    let release!: () => void;
+    listGate = new Promise<void>((r) => (release = r));
+    const p = svc.resume(s.id);
+    const rejected = expect(p).rejects.toThrow(/fechada/);
+    svc.close(s.id);
+    release();
+    await rejected;
+    expect(pty.spawns).toHaveLength(1);
+  });
+
+  it('resumes concorrentes: o perdedor recebe ja-em-execucao e o estado fica íntegro', async () => {
+    const s = await svc.create('p1', 'claude');
+    watcher.emit('claude-id', s.id, 'c1');
+    pty.finish(s.id, 0);
+    let release!: () => void;
+    listGate = new Promise<void>((r) => (release = r));
+    const a = svc.resume(s.id);
+    const b = svc.resume(s.id);
+    await expect(b).rejects.toMatchObject({ code: 'ja-em-execucao' });
+    release();
+    await expect(a).resolves.toMatchObject({ id: s.id, alive: true });
+    expect(pty.spawns).toHaveLength(2);
+    expect(svc.list('p1')[0].alive).toBe(true);
   });
 
   it('closeProject fecha todas as sessões do projeto', async () => {

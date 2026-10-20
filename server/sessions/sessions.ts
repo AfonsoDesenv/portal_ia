@@ -70,6 +70,8 @@ type SessionInfoRecord = Omit<SessionInfo, 'status' | 'alive'>;
 
 export class SessionService extends EventEmitter {
   private readonly runtime = new Map<string, Runtime>();
+  /** Ids com start/resume em andamento (entre os awaits e o spawn). */
+  private readonly starting = new Set<string>();
   private readonly toolsCache = new Map<EnvId, { at: number; tools: EnvTools }>();
   private readonly now: () => number;
 
@@ -166,9 +168,12 @@ export class SessionService extends EventEmitter {
   private async start(id: string, project: ProjectView, kind: SessionKind, resumeClaudeId?: string): Promise<void> {
     let claudeArgs: string[] | undefined;
     let statusFile: string | undefined;
+    let tools: EnvTools | undefined;
+    if (kind === 'claude') tools = await this.tools(project.env);
+    // close() pode ter rodado durante os awaits: não criar processo órfão.
+    if (!this.record(id)) throw new SessionError('sessão fechada durante a inicialização', 'sessao-desconhecida');
     if (kind === 'claude') {
-      const tools = await this.tools(project.env);
-      if (!tools.claude) {
+      if (!tools?.claude) {
         throw new ToolMissingError('claude', project.env, INSTALL_HINTS.claude[project.env === 'windows' ? 'windows' : 'wsl']);
       }
       const hooks = writeHookSettings(this.deps.config.tempDir, id, project.env);
@@ -182,7 +187,7 @@ export class SessionService extends EventEmitter {
     try {
       this.deps.pty.spawn(id, launch, project.env === 'windows' ? project.path : undefined);
     } catch (e) {
-      this.runtime.set(id, { status: 'parado', alive: false });
+      if (!this.deps.pty.isAlive(id)) this.runtime.set(id, { status: 'parado', alive: false });
       throw e;
     }
     if (statusFile) this.deps.watcher.watch(id, statusFile);
@@ -218,12 +223,19 @@ export class SessionService extends EventEmitter {
   async resume(sessionId: string): Promise<SessionInfo> {
     const rec = this.record(sessionId);
     if (!rec) throw new SessionError('sessão não encontrada', 'sessao-desconhecida');
-    if (this.runtime.get(sessionId)?.alive) throw new SessionError('a sessão já está em execução', 'ja-em-execucao');
+    if (this.runtime.get(sessionId)?.alive || this.starting.has(sessionId)) {
+      throw new SessionError('a sessão já está em execução', 'ja-em-execucao');
+    }
     if (rec.kind === 'claude' && !rec.claudeSessionId) {
       throw new SessionError('esta sessão ainda não tem um id do Claude para retomar', 'sem-claude-id');
     }
-    const project = await this.project(rec.projectId);
-    await this.start(sessionId, project, rec.kind, rec.claudeSessionId);
+    this.starting.add(sessionId); // síncrono: o segundo resume concorrente perde
+    try {
+      const project = await this.project(rec.projectId);
+      await this.start(sessionId, project, rec.kind, rec.claudeSessionId);
+    } finally {
+      this.starting.delete(sessionId);
+    }
     this.emitSession(sessionId);
     return this.info(rec);
   }
