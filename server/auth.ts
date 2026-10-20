@@ -27,6 +27,17 @@ export function registerAuth(app: FastifyInstance, config: Config): void {
         return reply.code(403).send({ error: 'Origin não permitido' });
       }
     }
+    // CSRF: requests que alteram estado só vindos do próprio portal.
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const origin = req.headers.origin;
+      if (origin !== undefined && !origins.has(origin.toLowerCase())) {
+        return reply.code(403).send({ error: 'Origin não permitido' });
+      }
+      const site = req.headers['sec-fetch-site'];
+      if (site !== undefined && site !== 'same-origin') {
+        return reply.code(403).send({ error: 'Requisição de outro site não permitida' });
+      }
+    }
 
     const key = (req.query as { key?: unknown } | undefined)?.key;
     if (typeof key === 'string' && req.url.split('?')[0] === '/') {

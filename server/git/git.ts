@@ -182,8 +182,9 @@ export class Git {
     return out;
   }
 
-  async fileVersions(path: string): Promise<{ original: string; modified: string; binary: boolean }> {
-    const show = await this.raw(['show', `HEAD:${path}`]);
+  /** `oldPath`: em renomeação, o original vem do caminho antigo em HEAD. */
+  async fileVersions(path: string, oldPath?: string): Promise<{ original: string; modified: string; binary: boolean }> {
+    const show = await this.raw(['show', `HEAD:${oldPath ?? path}`]);
     const original = show.code === 0 ? show.stdout : '';
     let modified = '';
     try {

@@ -12,6 +12,7 @@ Portal local (PWA) para gerenciar projetos de programação com IA no Windows e 
 | `claude` | `irm https://claude.ai/install.ps1 \| iex` | `curl -fsSL https://claude.ai/install.sh \| bash` |
 | `gh` | `winget install GitHub.cli` | `sudo apt install gh` |
 
+- **Depois de instalar `gh` ou `claude`, reinicie o portal**: o servidor só enxerga o PATH novo ao ser reiniciado.
 - Em cada ambiente, faça login no GitHub: `gh auth login`.
 - Em cada ambiente, configure a identidade do git (necessária para o commit inicial dos projetos novos):
 
@@ -54,6 +55,8 @@ npm run autostart:install
 ```
 
 Cria `Portal IA.lnk` na pasta Inicializar; ele roda `node dist\server\index.js --no-open` com janela oculta. Para desinstalar: `npm run autostart:remove`.
+
+O atalho grava o caminho do `node` e da pasta do portal: **depois de atualizar o Node ou mover a pasta, rode `npm run autostart:install` de novo**.
 
 ## Modo desenvolvimento
 

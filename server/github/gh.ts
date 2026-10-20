@@ -16,20 +16,27 @@ export interface CreateRepoOptions {
 export class GitHub {
   constructor(private readonly run: Runner) {}
 
+  /** No WSL roda via shell de login (PATH do ~/.profile, como detectTools); args vão como "$@". */
+  private gh(env: EnvId, cwd: string | null, args: string[]) {
+    return env === 'windows'
+      ? this.run(env, cwd, 'gh', args)
+      : this.run(env, cwd, 'bash', ['-lc', 'exec gh "$@"', 'gh', ...args]);
+  }
+
   async status(env: EnvId): Promise<GhStatus> {
-    const version = await this.run(env, null, 'gh', ['--version']);
+    const version = await this.gh(env, null, ['--version']);
     if (version.code !== 0) return { installed: false, loggedIn: false };
 
-    const auth = await this.run(env, null, 'gh', ['auth', 'status']);
+    const auth = await this.gh(env, null, ['auth', 'status']);
     if (auth.code !== 0) return { installed: true, loggedIn: false };
 
-    const me = await this.run(env, null, 'gh', ['api', 'user', '--jq', '.login']);
+    const me = await this.gh(env, null, ['api', 'user', '--jq', '.login']);
     const user = me.code === 0 ? me.stdout.trim() : '';
     return user ? { installed: true, loggedIn: true, user } : { installed: true, loggedIn: true };
   }
 
   async orgs(env: EnvId): Promise<string[]> {
-    const res = await this.run(env, null, 'gh', ['api', 'user/orgs', '--jq', '.[].login']);
+    const res = await this.gh(env, null, ['api', 'user/orgs', '--jq', '.[].login']);
     if (res.code !== 0) throw new Error(res.stderr.trim() || 'Falha ao listar organizações do GitHub');
     return res.stdout
       .split(/\r?\n/)
@@ -45,7 +52,7 @@ export class GitHub {
       '--source', '.',
       '--remote', 'origin',
     ];
-    const created = await this.run(env, cwd, 'gh', args);
+    const created = await this.gh(env, cwd, args);
     if (created.code !== 0) {
       throw new Error(created.stderr.trim() || 'Falha ao criar repositório no GitHub');
     }

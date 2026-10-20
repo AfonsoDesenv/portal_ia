@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { SessionKind } from '../types.js';
 import { SessionError, ToolMissingError, type SessionService } from '../sessions/sessions.js';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function fail(reply: FastifyReply, e: unknown) {
   if (e instanceof ToolMissingError) {
     return reply.code(422).send({ erro: 'ferramenta-ausente', ferramenta: e.tool, dica: e.hint });
@@ -21,8 +23,12 @@ export function registerSessionRoutes(app: FastifyInstance, sessions: SessionSer
     async (req, reply) => {
       const kind = req.body?.kind;
       if (kind !== 'claude' && kind !== 'shell') return reply.code(400).send({ erro: 'kind inválido' });
+      const resumeClaudeId: unknown = req.body?.resumeClaudeId;
+      if (resumeClaudeId !== undefined && (typeof resumeClaudeId !== 'string' || !UUID.test(resumeClaudeId))) {
+        return reply.code(400).send({ erro: 'invalido', mensagem: 'resumeClaudeId deve ser um UUID' });
+      }
       try {
-        return await sessions.create(req.params.id, kind, { resumeClaudeId: req.body?.resumeClaudeId });
+        return await sessions.create(req.params.id, kind, { resumeClaudeId });
       } catch (e) {
         return fail(reply, e);
       }

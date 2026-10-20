@@ -46,6 +46,16 @@ describe('PtyManager', () => {
     m.kill('a'); // no-op
   });
 
+  it('killAll encerra os processos vivos', async () => {
+    const m = new PtyManager();
+    const exited = wait(m);
+    m.spawn('k', { file: 'cmd.exe', args: ['/k'] }, process.cwd());
+    expect(m.isAlive('k')).toBe(true);
+    m.killAll();
+    expect((await exited).id).toBe('k');
+    expect(m.isAlive('k')).toBe(false);
+  });
+
   it('attach recebe dados novos', async () => {
     const m = new PtyManager();
     const chunks: string[] = [];

@@ -66,8 +66,10 @@ export const api = {
   checkout: (projectId: string, branch: string) =>
     call<{ branch: string }>('POST', `/api/projects/${encodeURIComponent(projectId)}/git/checkout`, { branch }),
   gitStatus: (projectId: string) => call<GitStatus>('GET', `/api/projects/${encodeURIComponent(projectId)}/git/status`),
-  gitFile: (projectId: string, path: string) =>
-    call<FileVersions>('GET', `/api/projects/${encodeURIComponent(projectId)}/git/file?path=${encodeURIComponent(path)}`),
+  /** `oldPath`: renomeação (o original do diff vem do caminho antigo). */
+  gitFile: (projectId: string, path: string, oldPath?: string) =>
+    call<FileVersions>('GET', `/api/projects/${encodeURIComponent(projectId)}/git/file?path=${encodeURIComponent(path)}${
+      oldPath ? `&oldPath=${encodeURIComponent(oldPath)}` : ''}`),
   commit: (projectId: string, b: { files: string[]; message: string; push: boolean }) =>
     call<CommitResult>('POST', `/api/projects/${encodeURIComponent(projectId)}/git/commit`, b),
   openVsCode: (projectId: string) => call<{ ok: true }>('POST', `/api/projects/${encodeURIComponent(projectId)}/vscode`),

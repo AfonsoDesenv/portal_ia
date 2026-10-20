@@ -26,14 +26,16 @@ export function ReviewView({ projectId, attachClaude }: { projectId: string; att
     else if (!active || !files.some((f) => f.path === active)) setActive(files[0].path);
   }, [files, active]);
 
+  const activeOld = files.find((f) => f.path === active)?.oldPath;
+
   useEffect(() => {
     if (!active) { setVersion(null); return; }
     let stale = false;
-    api.gitFile(projectId, active)
+    api.gitFile(projectId, active, activeOld)
       .then((v) => { if (!stale) { setVersion(v); setError(''); } })
       .catch((e) => { if (!stale) { setVersion(null); setError(e instanceof Error ? e.message : String(e)); } });
     return () => { stale = true; };
-  }, [projectId, active, tick]);
+  }, [projectId, active, activeOld, tick]);
 
   return (
     <div className="review">

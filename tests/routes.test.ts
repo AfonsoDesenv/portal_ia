@@ -86,8 +86,8 @@ beforeEach(() => {
         if (b === 'sujo') throw new GitError('suas alterações seriam sobrescritas');
         gitCalls.push(`checkout ${b}`);
       },
-      fileVersions: async (p: string) => {
-        gitCalls.push(`file ${p}`);
+      fileVersions: async (p: string, old?: string) => {
+        gitCalls.push(old ? `file ${p} <- ${old}` : `file ${p}`);
         return { original: '', modified: 'a', binary: false };
       },
       commit: async (files: string[], message: string) => {
@@ -161,6 +161,15 @@ describe('rotas de git', () => {
     const ok = await call('GET', `/api/projects/p1/git/file?path=${encodeURIComponent('src/ação.md')}`);
     expect(ok.statusCode).toBe(200);
     expect(gitCalls).toEqual(['file src/ação.md']);
+  });
+
+  it('GET git/file aceita oldPath (renomeação) validado', async () => {
+    const q = (path: string, oldPath: string) =>
+      call('GET', `/api/projects/p1/git/file?path=${encodeURIComponent(path)}&oldPath=${encodeURIComponent(oldPath)}`);
+    expect((await q('novo.ts', '../fora')).statusCode).toBe(400);
+    expect(gitCalls).toEqual([]);
+    expect((await q('novo.ts', 'velho.ts')).statusCode).toBe(200);
+    expect(gitCalls).toEqual(['file novo.ts <- velho.ts']);
   });
 
   it('criar branch emite git-changed; status e branches respondem', async () => {

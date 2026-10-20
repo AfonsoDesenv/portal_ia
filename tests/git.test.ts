@@ -45,6 +45,10 @@ describe('Git', () => {
     const st = await git.status();
     expect(st).toHaveLength(1);
     expect(st[0]).toMatchObject({ path: 'b.txt', oldPath: 'a.txt' });
+    // Original do diff vem do caminho antigo em HEAD.
+    const v = await git.fileVersions('b.txt', 'a.txt');
+    expect(v.original).toBe('conteudo longo o bastante\nlinha2\nlinha3\n');
+    expect(v.modified).toBe('conteudo longo o bastante\nlinha2\nlinha3\n');
   });
 
   it('binário', async () => {

@@ -175,6 +175,48 @@ describe('SessionService', () => {
     await app.close();
   });
 
+  it('rota de criar sessão valida resumeClaudeId (UUID)', async () => {
+    const app = buildApp({ config, sessions: svc });
+    await app.ready();
+    const post = (payload: object) => app.inject({
+      method: 'POST',
+      url: '/api/projects/p1/sessions',
+      payload,
+      headers: { host: `localhost:${config.port}`, cookie: `portal_key=${config.token}` },
+    });
+    for (const bad of ['abc', '--help', 'x'.repeat(36), 7]) {
+      const r = await post({ kind: 'claude', resumeClaudeId: bad });
+      expect(r.statusCode).toBe(400);
+    }
+    expect(pty.spawns).toHaveLength(0);
+    const ok = await post({ kind: 'claude', resumeClaudeId: '3f2b6c1e-8a4d-4f0e-9b7a-1c2d3e4f5a6b' });
+    expect(ok.statusCode).toBe(200);
+    expect(launches[0].claudeArgs!.slice(-2)).toEqual(['--resume', '3f2b6c1e-8a4d-4f0e-9b7a-1c2d3e4f5a6b']);
+    await app.close();
+  });
+
+  it('muitos terminais e clientes de eventos não geram MaxListenersExceededWarning', async () => {
+    const warnings: Error[] = [];
+    const onWarn = (w: Error) => warnings.push(w);
+    process.on('warning', onWarn);
+    try {
+      const s = await svc.create('p1', 'shell');
+      const atts = Array.from({ length: 20 }, () => svc.attachTerm(s.id, () => {}, () => {})!);
+      const evs = Array.from({ length: 20 }, () => {
+        const l = () => {};
+        svc.on('event', l);
+        return l;
+      });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(warnings.filter((w) => w.name === 'MaxListenersExceededWarning')).toEqual([]);
+      expect(pty.listenerCount('exit')).toBeLessThanOrEqual(1);
+      for (const a of atts) a.detach();
+      for (const l of evs) svc.off('event', l);
+    } finally {
+      process.off('warning', onWarn);
+    }
+  });
+
   it('terminal shell não exige claude', async () => {
     claudeOk = false;
     const s = await svc.create('p1', 'shell');

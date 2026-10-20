@@ -85,14 +85,14 @@ export function registerGitRoutes(app: FastifyInstance, d: GitRouteDeps): void {
     return { branch: branch.trim() };
   });
 
-  app.get<{ Params: { id: string }; Querystring: { path?: string } }>(`${base}/file`, async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { path?: string; oldPath?: string } }>(`${base}/file`, async (req, reply) => {
     const p = findProject(d.store, req.params.id);
     if (!p) return unknownProject(reply);
-    const path = req.query.path;
-    if (typeof path !== 'string' || !isSafeRelPath(path)) {
+    const { path, oldPath } = req.query;
+    if (typeof path !== 'string' || !isSafeRelPath(path) || (oldPath !== undefined && (typeof oldPath !== 'string' || !isSafeRelPath(oldPath)))) {
       return erro(reply, 400, 'caminho-invalido', 'caminho fora do projeto');
     }
-    const r = await guarded(reply, () => d.gitFor(p).fileVersions(path));
+    const r = await guarded(reply, () => (oldPath ? d.gitFor(p).fileVersions(path, oldPath) : d.gitFor(p).fileVersions(path)));
     return r ?? reply;
   });
 

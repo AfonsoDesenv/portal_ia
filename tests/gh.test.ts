@@ -46,10 +46,14 @@ describe('GitHub.createRepo', () => {
     const gh = new GitHub(run);
     await gh.createRepo('wsl:Ubuntu', '/home/u/x', { owner: 'minha-org', name: 'x', private: false });
 
+    // WSL: gh via shell de login (PATH do ~/.profile), argumentos sem passar por string de shell.
+    expect(calls[0].cmd).toBe('bash');
     expect(calls[0].args).toEqual([
+      '-lc', 'exec gh "$@"', 'gh',
       'repo', 'create', 'minha-org/x', '--public', '--source', '.', '--remote', 'origin',
     ]);
     expect(calls[0].env).toBe('wsl:Ubuntu');
+    expect(calls[0].cwd).toBe('/home/u/x');
   });
 
   it('lança erro com o stderr do gh quando a criação falha', async () => {
@@ -88,6 +92,17 @@ describe('GitHub.status', () => {
     const gh = new GitHub(run);
     expect(await gh.status('windows')).toEqual({ installed: true, loggedIn: false });
     expect(calls.some((c) => c.args[0] === 'api')).toBe(false);
+  });
+});
+
+describe('GitHub em WSL', () => {
+  it('status e orgs rodam gh via bash -lc', async () => {
+    const { run, calls } = fakeRunner((c) => (c.args.includes('user/orgs') ? ok('o\n') : c.args.includes('user') ? ok('eu\n') : ok()));
+    const gh = new GitHub(run);
+    expect(await gh.status('wsl:Ubuntu')).toEqual({ installed: true, loggedIn: true, user: 'eu' });
+    expect(await gh.orgs('wsl:Ubuntu')).toEqual(['o']);
+    expect(calls.every((c) => c.cmd === 'bash' && c.args[0] === '-lc' && c.args[1] === 'exec gh "$@"')).toBe(true);
+    expect(calls[0].args.slice(3)).toEqual(['--version']);
   });
 });
 

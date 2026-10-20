@@ -74,11 +74,15 @@ export class SessionService extends EventEmitter {
   private readonly starting = new Set<string>();
   /** Incrementado em closeProject: um start em andamento de antes do fechamento é cancelado. */
   private readonly projectEpoch = new Map<string, number>();
-  private readonly toolsCache = new Map<EnvId, { at: number; tools: EnvTools }>();
+  /** Callbacks de exit dos terminais anexados, por sessão. */
+  private readonly termExit = new Map<string, Set<(code: number) => void>>();
+  private readonly toolsCache =new Map<EnvId, { at: number; tools: EnvTools }>();
   private readonly now: () => number;
 
   constructor(private readonly deps: SessionDeps) {
     super();
+    // Um listener de 'event' por cliente de /ws/events: sem limite (evita MaxListenersExceededWarning).
+    this.setMaxListeners(0);
     this.now = deps.now ?? Date.now;
     deps.watcher.on('status', (id: string, status: SessionStatus) => {
       const rt = this.runtime.get(id);
@@ -95,7 +99,9 @@ export class SessionService extends EventEmitter {
       });
       this.emitSession(id);
     });
-    deps.pty.on('exit', (id: string) => {
+    deps.pty.on('exit', (id: string, code: number) => {
+      // Um único listener no pty; os terminais anexados recebem por aqui.
+      for (const fn of [...(this.termExit.get(id) ?? [])]) fn(code);
       const rt = this.runtime.get(id);
       if (!rt) return;
       rt.alive = false;
@@ -289,16 +295,17 @@ export class SessionService extends EventEmitter {
     if (!this.record(id)) return undefined;
     if (!this.runtime.has(id)) return { scrollback: '', alive: false, detach() {} };
     const a = this.deps.pty.attach(id, onData);
-    const exitListener = (eid: string, code: number) => {
-      if (eid === id) onExit(code);
-    };
-    this.deps.pty.on('exit', exitListener);
+    const set = this.termExit.get(id) ?? new Set();
+    this.termExit.set(id, set);
+    const exitListener = (code: number) => onExit(code);
+    set.add(exitListener);
     return {
       scrollback: a.scrollback,
       alive: this.deps.pty.isAlive(id),
       detach: () => {
         a.detach();
-        this.deps.pty.off('exit', exitListener);
+        set.delete(exitListener);
+        if (set.size === 0 && this.termExit.get(id) === set) this.termExit.delete(id);
       },
     };
   }

@@ -13,6 +13,11 @@ interface Entry {
 }
 
 export class PtyManager extends EventEmitter {
+  constructor() {
+    super();
+    this.setMaxListeners(0);
+  }
+
   private entries = new Map<string, Entry>();
 
   /** Para Windows `cwd` é o cwd do pty; para WSL o cwd já está nos args (passe undefined). */
@@ -86,6 +91,11 @@ export class PtyManager extends EventEmitter {
     } catch {
       /* já encerrado */
     }
+  }
+
+  /** Encerra todos os processos vivos (desligamento do portal). */
+  killAll(): void {
+    for (const id of this.entries.keys()) this.kill(id);
   }
 
   attach(id: string, onData: (data: string) => void): { scrollback: string; detach(): void } {

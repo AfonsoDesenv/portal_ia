@@ -80,6 +80,37 @@ describe('autenticação', () => {
   });
 });
 
+describe('CSRF em requests que alteram estado', () => {
+  const post = (extra: Record<string, string>) =>
+    app.inject({ method: 'POST', url: '/api/nada', headers: { host, cookie: `portal_key=${token}`, ...extra } });
+
+  it('rejeita POST com Origin de outro site', async () => {
+    expect((await post({ origin: 'http://evil.com' })).statusCode).toBe(403);
+    expect((await post({ origin: 'http://localhost:9999' })).statusCode).toBe(403);
+  });
+
+  it('aceita POST com Origin do portal (localhost ou 127.0.0.1) ou sem Origin', async () => {
+    const port = host.split(':')[1];
+    expect((await post({ origin: `http://${host}` })).statusCode).toBe(404);
+    expect((await post({ origin: `http://127.0.0.1:${port}` })).statusCode).toBe(404);
+    expect((await post({})).statusCode).toBe(404);
+  });
+
+  it('rejeita POST com Sec-Fetch-Site diferente de same-origin', async () => {
+    expect((await post({ 'sec-fetch-site': 'cross-site' })).statusCode).toBe(403);
+    expect((await post({ 'sec-fetch-site': 'same-site' })).statusCode).toBe(403);
+    expect((await post({ 'sec-fetch-site': 'same-origin' })).statusCode).toBe(404);
+  });
+
+  it('GET não é afetado por Origin/Sec-Fetch-Site', async () => {
+    const res = await app.inject({
+      url: '/api/health',
+      headers: { host, cookie: `portal_key=${token}`, origin: 'http://evil.com', 'sec-fetch-site': 'cross-site' },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
 describe('loadConfig', () => {
   it('devolve o mesmo token nas duas chamadas e as pastas base padrão', () => {
     const a = loadConfig(dir);
