@@ -20,6 +20,12 @@ export interface AppState {
   generation: Record<string, number>;
   /** Contador por projeto, incrementado em git-changed. */
   gitTick: Record<string, number>;
+  /** Seleção de commit por projeto: caminho → marcado. Persiste entre modos. */
+  selection: Record<string, Record<string, boolean>>;
+  setSelection: (id: string, sel: Record<string, boolean>) => void;
+  /** Rascunho da mensagem de commit por projeto (sobrevive à troca de modo). */
+  draft: Record<string, string>;
+  setDraft: (id: string, text: string) => void;
   loaded: boolean;
   load: () => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -44,6 +50,14 @@ export const useApp = create<AppState>((set, get) => {
     mode: {},
     generation: {},
     gitTick: {},
+    selection: {},
+    draft: {},
+    setDraft(id, text) {
+      set((s) => ({ draft: { ...s.draft, [id]: text } }));
+    },
+    setSelection(id, sel) {
+      set((s) => ({ selection: { ...s.selection, [id]: sel } }));
+    },
     loaded: false,
 
     async load() {

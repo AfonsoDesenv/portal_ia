@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ProjectView as Project, SessionInfo, SessionKind } from '@shared';
 import { ApiError, api } from '../api';
 import { useApp } from '../store';
 import { TopBar } from './TopBar';
 import { TerminalPanel } from './TerminalPanel';
 import type { ToolMissing } from './ToolMissingPanel';
+import { ChangesPanel } from './ChangesPanel';
+
+const ReviewView = lazy(() => import('./ReviewView').then((m) => ({ default: m.ReviewView })));
 
 const NONE: SessionInfo[] = [];
 
@@ -18,6 +22,18 @@ export function ProjectView({ project, visible }: { project: Project; visible: b
   const [error, setError] = useState('');
   const [split, setSplit] = useState(0.3); // fração da altura para os terminais
   const centerRef = useRef<HTMLDivElement>(null);
+  // Os terminais do Claude são renderizados uma única vez dentro deste host; ele é movido entre o
+  // painel de trabalho e a barra "Claude" do Review, então o TerminalView/WS/xterm nunca é recriado.
+  const claudeHost = useMemo(() => {
+    const d = document.createElement('div');
+    d.className = 'claude-host';
+    return d;
+  }, []);
+  const workSlot = useRef<HTMLDivElement>(null);
+  const attachClaude = useCallback((el: HTMLDivElement | null) => { el?.appendChild(claudeHost); }, [claudeHost]);
+  useLayoutEffect(() => {
+    if (mode === 'trabalho') workSlot.current?.appendChild(claudeHost);
+  }, [mode, claudeHost]);
   const stopDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => stopDrag.current?.(), []); // desmontar no meio do arrasto
 
@@ -105,7 +121,8 @@ export function ProjectView({ project, visible }: { project: Project; visible: b
       <div className="work" style={{ display: mode === 'trabalho' ? 'flex' : 'none' }}>
         <div className="center" ref={centerRef}>
           <div className="center-claude" style={{ flex: `${1 - split} 1 0` }}>
-            {pane('claude', claude, '+ nova sessão', 'Nenhuma sessão do Claude. Clique em "+ nova sessão".')}
+            <div className="claude-work-slot" ref={workSlot} />
+            {createPortal(pane('claude', claude, '+ nova sessão', 'Nenhuma sessão do Claude. Clique em "+ nova sessão".'), claudeHost)}
           </div>
           <div className="splitter" onPointerDown={startDrag} role="separator" aria-orientation="horizontal" />
           <div className="center-shell" style={{ flex: `${split} 1 0` }}>
@@ -113,10 +130,14 @@ export function ProjectView({ project, visible }: { project: Project; visible: b
           </div>
         </div>
         <aside className="changes-slot">
-          <h3>Alterações</h3>
+          {mode === 'trabalho' && <ChangesPanel projectId={project.id} compact={false} />}
         </aside>
       </div>
-      {mode === 'review' && <div className="placeholder muted">Review — em breve</div>}
+      {mode === 'review' && (
+        <Suspense fallback={<div className="placeholder muted">Carregando review…</div>}>
+          <ReviewView projectId={project.id} attachClaude={attachClaude} />
+        </Suspense>
+      )}
     </section>
   );
 }

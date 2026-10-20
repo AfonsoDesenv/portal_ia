@@ -24,6 +24,10 @@ export function App() {
       if (isPortalShortcut(e) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setQuick(true);
+      } else if (isPortalShortcut(e) && e.key.toLowerCase() === 'r') {
+        e.preventDefault(); // senão o navegador recarrega a página
+        const { activeId: id, mode, setMode } = useApp.getState();
+        if (id) setMode(id, (mode[id] ?? 'trabalho') === 'review' ? 'trabalho' : 'review');
       }
     };
     window.addEventListener('keydown', onKey, { capture: true });

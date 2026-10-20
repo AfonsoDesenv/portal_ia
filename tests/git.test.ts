@@ -57,6 +57,20 @@ describe('Git', () => {
     expect((await git.status())[0].binary).toBe(true);
   });
 
+  it('commit de renomeação indexada (git mv) com path e oldPath', async () => {
+    writeFileSync(join(dir, 'old.txt'), 'o\n');
+    writeFileSync(join(dir, 'outro.txt'), 'x\n');
+    await git.commit(['old.txt', 'outro.txt'], 'base');
+    await sh(['mv', 'old.txt', 'novo ação.txt']);
+    writeFileSync(join(dir, 'outro.txt'), 'y\n');
+    await git.commit(['novo ação.txt', 'old.txt'], 'rename');
+    const show = (await sh(['show', '--name-status', '--format=', '-z', 'HEAD'])).stdout;
+    expect(show).toContain('old.txt');
+    expect(show).toContain('novo ação.txt');
+    expect(show).not.toContain('outro.txt');
+    expect((await git.status()).map((f) => f.path)).toEqual(['outro.txt']);
+  });
+
   it('branches e createBranch', async () => {
     writeFileSync(join(dir, 'a.txt'), 'a\n');
     await git.commit(['a.txt'], 'a');

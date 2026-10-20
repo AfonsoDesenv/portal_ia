@@ -143,7 +143,12 @@ export class Git {
 
   async commit(files: string[], message: string): Promise<string> {
     if (files.length === 0) throw new GitError('nenhum arquivo selecionado');
-    await this.ok(['add', '-A', '--', ...files]);
+    const added = await this.raw(['add', '-A', '--', ...files]);
+    if (added.code !== 0) {
+      // Renomeação já indexada: o caminho antigo não existe mais no índice nem na pasta e o `add` recusa
+      // o pathspec. Adiciona um a um; caminho realmente inválido falha no commit logo abaixo.
+      for (const f of files) await this.raw(['add', '-A', '--', f]);
+    }
     await this.ok(['commit', '-m', message, '--', ...files]);
     return (await this.ok(['rev-parse', 'HEAD'])).trim();
   }
