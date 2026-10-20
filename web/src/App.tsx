@@ -13,7 +13,8 @@ export function App() {
 
   useEffect(() => {
     load().catch((e) => setError(e instanceof Error ? e.message : String(e)));
-    return connectEvents(applyEvent);
+    const reload = () => load().catch(() => undefined);
+    return connectEvents(applyEvent, reload);
   }, [load, applyEvent]);
 
   useEffect(() => {
