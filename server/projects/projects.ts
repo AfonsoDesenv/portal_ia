@@ -122,7 +122,7 @@ export class ProjectService {
     );
   }
 
-  async create(input: { env: EnvId; name: string; baseDir: string; github: GithubOpt }): Promise<Project> {
+  async create(input: { env: EnvId; name: string; baseDir: string; github: GithubOpt }): Promise<{ project: Project; warnings: string[] }> {
     const { env, name } = input;
     if (!name.trim() || /[\\/]/.test(name)) throw new ProjectError('nome de projeto inválido');
     const base = await this.resolve(env, input.baseDir);
@@ -139,11 +139,16 @@ export class ProjectService {
 
     const project: Project = { id: randomUUID(), name, env, path, createdAt: new Date().toISOString() };
     this.add(project);
+    const warnings: string[] = [];
     if (input.github) {
-      await this.attachRemote(project, input.github);
-      await git.push();
+      try {
+        await this.attachRemote(project, input.github);
+        await git.push();
+      } catch (e) {
+        warnings.push(`github-falhou: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
-    return project;
+    return { project, warnings };
   }
 
   async register(input: { env: EnvId; path: string; github: GithubOpt }): Promise<{ project: Project; warnings: string[] }> {
@@ -160,6 +165,7 @@ export class ProjectService {
       const r = await this.run(env, path, 'git', ['remote', 'get-url', 'origin']);
       if (r.code === 0 && r.stdout.trim()) project.remoteUrl = r.stdout.trim();
       this.add(project);
+      if (!project.remoteUrl && input.github) await this.attachRemote(project, input.github);
     } else {
       await git.init();
       this.add(project);

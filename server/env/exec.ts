@@ -17,7 +17,7 @@ export const runIn: Runner = (env, cwd, cmd, args, opts) =>
     if (env !== 'windows') {
       const distro = env.slice('wsl:'.length);
       file = 'wsl.exe';
-      fileArgs = ['-d', distro, ...(cwd ? ['--cd', cwd] : []), '--', cmd, ...args];
+      fileArgs = ['-d', distro, ...(cwd ? ['--cd', cwd] : []), '-e', cmd, ...args];
       execCwd = undefined;
     }
     const child = execFile(

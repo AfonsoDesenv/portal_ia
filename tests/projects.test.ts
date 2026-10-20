@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { parseDistros } from '../server/env/environments.js';
 import { join } from 'node:path';
 import { Store } from '../server/store/store.js';
 import { runIn } from '../server/env/exec.js';
@@ -29,7 +31,7 @@ const git = (cwd: string, ...a: string[]) => runIn('windows', cwd, 'git', a);
 
 describe('ProjectService', () => {
   it('create sem github: pasta, README, .gitignore, 1 commit, branch main', async () => {
-    const p = await svc.create({ env: 'windows', name: 'meu projeto', baseDir: dir, github: false });
+    const { project: p } = await svc.create({ env: 'windows', name: 'meu projeto', baseDir: dir, github: false });
     expect(p.path).toBe(join(dir, 'meu projeto'));
     expect(readFileSync(join(p.path, 'README.md'), 'utf8')).toContain('# meu projeto');
     expect(readFileSync(join(p.path, '.gitignore'), 'utf8')).toContain('node_modules/');
@@ -50,9 +52,10 @@ describe('ProjectService', () => {
       store, run: runIn, github: { createRepo: withRemote } as unknown as GitHub,
       config: { roots: { windows: dir, wsl: '~/git' } } as Config,
     });
-    const p = await s.create({ env: 'windows', name: 'com gh', baseDir: dir, github: { private: true } });
+    const { project: p } = await s.create({ env: 'windows', name: 'com gh', baseDir: dir, github: { private: true } });
     expect(withRemote.mock.calls[0][2]).toMatchObject({ name: 'com gh', private: true });
     expect(p.remoteUrl).toBe('https://github.com/x/y.git');
+    expect(store.get().projects.find((x) => x.id === p.id)?.remoteUrl).toBe('https://github.com/x/y.git');
     const r = await git(join(dir, 'remote.git'), 'rev-list', '--count', 'main');
     expect(r.stdout.trim()).toBe('1');
   });
@@ -86,10 +89,10 @@ describe('ProjectService', () => {
   });
 
   it('remove não apaga a pasta; list marca missing quando a pasta some', async () => {
-    const p = await svc.create({ env: 'windows', name: 'x y', baseDir: dir, github: false });
+    const { project: p } = await svc.create({ env: 'windows', name: 'x y', baseDir: dir, github: false });
     rmSync(p.path, { recursive: true, force: true });
     expect((await svc.list())[0].missing).toBe(true);
-    const q = await svc.create({ env: 'windows', name: 'z w', baseDir: dir, github: false });
+    const { project: q } = await svc.create({ env: 'windows', name: 'z w', baseDir: dir, github: false });
     expect((await svc.list()).find((v) => v.id === q.id)!.missing).toBe(false);
     store.update((s) => s.openProjectIds.push(q.id));
     svc.remove(q.id);
@@ -105,4 +108,61 @@ describe('ProjectService', () => {
     await svc.createGitignore(project.id);
     expect(readFileSync(join(d, '.gitignore'), 'utf8')).toContain('.env');
   });
+
+  it('create: falha do GitHub vira warning e o projeto fica registrado', async () => {
+    const s = new ProjectService({
+      store, run: runIn,
+      github: { createRepo: async () => { throw new Error('sem rede'); } } as unknown as GitHub,
+      config: { roots: { windows: dir, wsl: '~/git' } } as Config,
+    });
+    const { project, warnings } = await s.create({ env: 'windows', name: 'falha gh', baseDir: dir, github: { private: true } });
+    expect(warnings).toEqual(['github-falhou: sem rede']);
+    expect(store.get().projects.map((x) => x.id)).toContain(project.id);
+    expect((await git(project.path, 'rev-list', '--count', 'HEAD')).stdout.trim()).toBe('1');
+  });
+
+  it('register em repo sem origin com github chama createRepo, sem commit', async () => {
+    const d = join(dir, 'sem origin');
+    mkdirSync(d);
+    await git(d, 'init', '-b', 'main');
+    const { project } = await svc.register({ env: 'windows', path: d, github: { private: true } });
+    expect(createRepo).toHaveBeenCalledTimes(1);
+    expect(project.remoteUrl).toBe('https://github.com/x/y.git');
+    expect((await git(d, 'rev-list', '--all')).stdout.trim()).toBe('');
+  });
+});
+
+let hasWsl = false;
+try {
+  hasWsl = parseDistros(execFileSync('wsl.exe', ['-l', '-q'])).includes('Ubuntu');
+} catch { hasWsl = false; }
+
+describe.skipIf(!hasWsl)('ProjectService em WSL', () => {
+  it('cria pasta com espaço, README e list/missing', async () => {
+    const tmp = `/tmp/portal-test-${Math.random().toString(36).slice(2)}`;
+    const env = 'wsl:Ubuntu' as const;
+    const s = new ProjectService({
+      store, run: runIn, github: { createRepo } as unknown as GitHub,
+      config: { roots: { windows: dir, wsl: '~/git' } } as Config,
+    });
+    try {
+      // sem identidade git no WSL o commit falha: testa pasta + escrita + list
+      let project;
+      try {
+        ({ project } = await s.create({ env, name: 'meu projeto', baseDir: tmp, github: false }));
+      } catch {
+        project = undefined;
+      }
+      const path = `${tmp}/meu projeto`;
+      expect((await runIn(env, null, 'test', ['-f', `${path}/README.md`])).code).toBe(0);
+      expect((await runIn(env, null, 'test', ['-f', `${path}/.gitignore`])).code).toBe(0);
+      if (project) {
+        expect((await s.list())[0].missing).toBe(false);
+        await runIn(env, null, 'rm', ['-rf', '--', path]);
+        expect((await s.list())[0].missing).toBe(true);
+      }
+    } finally {
+      await runIn(env, null, 'rm', ['-rf', '--', tmp]);
+    }
+  }, 120000);
 });

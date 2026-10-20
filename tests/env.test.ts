@@ -46,6 +46,10 @@ describe('runIn', () => {
     const r = await runIn('wsl:Ubuntu', null, 'echo', ['ação']);
     expect(r.stdout).toBe('ação\n');
   }, 60000);
+  it.skipIf(!hasWsl)('wsl: argv literal (espaço, $, aspas) sem re-parse de shell', async () => {
+    const r = await runIn('wsl:Ubuntu', null, 'printf', ['%s|', 'a b', 'c$HOME', "d'e"]);
+    expect(r.stdout).toBe("a b|c$HOME|d'e|");
+  }, 60000);
 });
 
 describe('detectTools', () => {
