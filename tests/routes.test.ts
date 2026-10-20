@@ -52,7 +52,7 @@ beforeEach(() => {
   projectsImpl = {
     create: async () => ({ project: proj, warnings: ['github-falhou: x'] }),
     register: async () => {
-      throw new ProjectError('pasta não encontrada: Z:\\n');
+      throw new ProjectError('pasta não encontrada: Z:\\n', 'nao-encontrado');
     },
   };
   app = buildApp({
@@ -120,13 +120,20 @@ describe('rotas de git', () => {
     const r = await call('POST', '/api/projects/p1/git/commit', { files: ['a.txt'], message: 'feat: x', push: true });
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ hash: 'abc123', pushed: false, erroPush: 'projeto sem remoto' });
-    expect(commits[0].message).toMatch(/^feat: x\n\nCo-Authored-By: .+\n$/);
+    expect(commits[0].message).toBe('feat: x');
     expect(events).toContainEqual({ type: 'git-changed', projectId: 'p1' });
   });
 
   it('commit com push ok', async () => {
     const r = await call('POST', '/api/projects/p1/git/commit', { files: ['a.txt'], message: 'm', push: true });
     expect(r.json()).toEqual({ hash: 'abc123', pushed: true });
+  });
+
+  it('mensagem do commit passa sem alteração (sem trailer)', async () => {
+    const message = 'feat: corpo\n\nlinha 2 do corpo';
+    await call('POST', '/api/projects/p1/git/commit', { files: ['a.txt'], message, push: false });
+    expect(commits[0].message).toBe(message);
+    expect(commits[0].message).not.toMatch(/Co-Authored-By/i);
   });
 
   it('commit sem arquivos ou mensagem em branco é 400', async () => {
@@ -234,9 +241,34 @@ describe('rotas de projetos e ambiente', () => {
     expect(g.statusCode).toBe(404);
     expect(g.json().erro).toBeTruthy();
     projectsImpl.register = async () => {
-      throw new ProjectError('já existe um projeto "x" neste ambiente');
+      throw new ProjectError('já existe um projeto "x" neste ambiente', 'conflito');
     };
     expect((await call('POST', '/api/projects/register', { env: 'windows', path: 'C:\\x' })).statusCode).toBe(409);
+  });
+
+  it('ProjectError: status pelo code, não pela mensagem', async () => {
+    projectsImpl.create = async () => {
+      throw new ProjectError('Configure git user.name e user.email no Windows: ...', 'git-identidade');
+    };
+    const r = await call('POST', '/api/projects', { env: 'windows', name: 'x', baseDir: 'C:\\GIT', github: false });
+    expect(r.statusCode).toBe(409);
+    expect(r.json()).toEqual({ erro: 'git-identidade', mensagem: 'Configure git user.name e user.email no Windows: ...' });
+    // Mensagem com "inválido" mas code conflito continua 409.
+    projectsImpl.create = async () => {
+      throw new ProjectError('nome inválido? não: conflito', 'conflito');
+    };
+    expect((await call('POST', '/api/projects', { env: 'windows', name: 'x', baseDir: 'C:\\GIT' })).statusCode).toBe(409);
+    projectsImpl.create = async () => {
+      throw new ProjectError('qualquer', 'invalido');
+    };
+    expect((await call('POST', '/api/projects', { env: 'windows', name: 'x', baseDir: 'C:\\GIT' })).statusCode).toBe(400);
+  });
+
+  it('POST gitignore de projeto desconhecido é 404 projeto-desconhecido', async () => {
+    const r = await call('POST', '/api/projects/zz/gitignore');
+    expect(r.statusCode).toBe(404);
+    expect(r.json().erro).toBe('projeto-desconhecido');
+    expect((await call('POST', '/api/projects/p1/gitignore')).statusCode).toBe(200);
   });
 
   it('DELETE projeto desconhecido é 404', async () => {

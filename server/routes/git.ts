@@ -21,7 +21,6 @@ export function isSafeRelPath(p: string): boolean {
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const TRAILER = 'Co-Authored-By: Claude <noreply@anthropic.com>';
 
 export function registerGitRoutes(app: FastifyInstance, d: GitRouteDeps): void {
   const base = '/api/projects/:id/git';
@@ -108,7 +107,7 @@ export function registerGitRoutes(app: FastifyInstance, d: GitRouteDeps): void {
       return erro(reply, 400, 'invalido', 'a mensagem do commit não pode ficar em branco');
     }
     const g = d.gitFor(p);
-    const hash = await guarded(reply, () => g.commit(files as string[], `${message.trim()}\n\n${TRAILER}\n`));
+    const hash = await guarded(reply, () => g.commit(files as string[], message));
     if (hash === undefined) return reply;
     let result: { hash: string; pushed: boolean; erroPush?: string } = { hash, pushed: false };
     if (push) {
