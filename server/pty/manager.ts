@@ -26,10 +26,17 @@ export class PtyManager extends EventEmitter {
       cwd,
       env: process.env as Record<string, string>,
     });
-    const entry: Entry = { proc, scrollback: '', listeners: new Set(), exited: false };
+    // Reaproveita a entrada do id (mantém os listeners anexados); scrollback recomeça.
+    const entry: Entry = prev ?? { proc, scrollback: '', listeners: new Set(), exited: false };
+    entry.proc = proc;
+    entry.scrollback = '';
+    entry.exited = false;
     this.entries.set(id, entry);
-    proc.onData((d) => this.append(id, d));
+    proc.onData((d) => {
+      if (entry.proc === proc) this.push(entry, d);
+    });
     proc.onExit(({ exitCode }) => {
+      if (entry.proc !== proc) return;
       entry.exited = true;
       this.emit('exit', id, exitCode);
     });
@@ -37,10 +44,28 @@ export class PtyManager extends EventEmitter {
 
   /** Interno: adiciona ao scrollback (limitado) e notifica assinantes. */
   append(id: string, data: string): void {
-    const e = this.get(id);
+    this.push(this.get(id), data);
+  }
+
+  private push(e: Entry, data: string): void {
     e.scrollback += data;
     if (e.scrollback.length > SCROLLBACK_LIMIT) e.scrollback = e.scrollback.slice(-SCROLLBACK_LIMIT);
-    for (const l of e.listeners) l(data);
+    for (const l of [...e.listeners]) {
+      try {
+        l(data);
+      } catch {
+        /* um assinante com defeito não afeta os outros */
+      }
+    }
+  }
+
+  isAlive(id: string): boolean {
+    const e = this.entries.get(id);
+    return !!e && !e.exited;
+  }
+
+  forget(id: string): void {
+    this.entries.delete(id);
   }
 
   write(id: string, data: string): void {

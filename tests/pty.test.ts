@@ -76,3 +76,45 @@ describe('PtyManager', () => {
     expect(() => m.attach('x', () => {})).toThrow(/x/);
   });
 });
+
+describe('PtyManager respawn', () => {
+  it('reiniciar um id encerrado mantém os listeners anexados', async () => {
+    const m = new PtyManager();
+    const chunks: string[] = [];
+    let exited = wait(m);
+    m.spawn('r', { file: 'cmd.exe', args: ['/c', 'echo primeiro'] }, process.cwd());
+    m.attach('r', (d) => chunks.push(d));
+    await exited;
+    exited = wait(m);
+    m.spawn('r', { file: 'cmd.exe', args: ['/c', 'echo segundo'] }, process.cwd());
+    await exited;
+    const all = chunks.join('');
+    expect(all).toContain('primeiro');
+    expect(all).toContain('segundo');
+    const sb = m.attach('r', () => {}).scrollback;
+    expect(sb).toContain('segundo');
+    expect(sb).not.toContain('primeiro');
+  });
+
+  it('listener que lança não impede os demais', async () => {
+    const m = new PtyManager();
+    const chunks: string[] = [];
+    const exited = wait(m);
+    m.spawn('t', { file: 'cmd.exe', args: ['/c', 'echo ok'] }, process.cwd());
+    m.attach('t', () => {
+      throw new Error('boom');
+    });
+    m.attach('t', (d) => chunks.push(d));
+    await exited;
+    expect(chunks.join('')).toContain('ok');
+  });
+
+  it('spawn com processo vivo lança erro', async () => {
+    const m = new PtyManager();
+    m.spawn('v', { file: 'cmd.exe', args: ['/k'] }, process.cwd());
+    expect(() => m.spawn('v', { file: 'cmd.exe', args: ['/c', 'x'] }, process.cwd())).toThrow(/v/);
+    const exited = wait(m);
+    m.kill('v');
+    await exited;
+  });
+});
