@@ -72,6 +72,8 @@ export class SessionService extends EventEmitter {
   private readonly runtime = new Map<string, Runtime>();
   /** Ids com start/resume em andamento (entre os awaits e o spawn). */
   private readonly starting = new Set<string>();
+  /** Incrementado em closeProject: um start em andamento de antes do fechamento é cancelado. */
+  private readonly projectEpoch = new Map<string, number>();
   private readonly toolsCache = new Map<EnvId, { at: number; tools: EnvTools }>();
   private readonly now: () => number;
 
@@ -165,13 +167,15 @@ export class SessionService extends EventEmitter {
   }
 
   /** Inicia (ou reinicia) o processo de uma sessão. */
-  private async start(id: string, project: ProjectView, kind: SessionKind, resumeClaudeId?: string): Promise<void> {
+  private async start(id: string, project: ProjectView, kind: SessionKind, epoch: number, resumeClaudeId?: string): Promise<void> {
     let claudeArgs: string[] | undefined;
     let statusFile: string | undefined;
     let tools: EnvTools | undefined;
     if (kind === 'claude') tools = await this.tools(project.env);
-    // close() pode ter rodado durante os awaits: não criar processo órfão.
-    if (!this.record(id)) throw new SessionError('sessão fechada durante a inicialização', 'sessao-desconhecida');
+    // close()/closeProject() podem ter rodado durante os awaits: não criar processo órfão.
+    if (!this.record(id) || (this.projectEpoch.get(project.id) ?? 0) !== epoch) {
+      throw new SessionError('sessão fechada durante a inicialização', 'sessao-desconhecida');
+    }
     if (kind === 'claude') {
       if (!tools?.claude) {
         throw new ToolMissingError('claude', project.env, INSTALL_HINTS.claude[project.env === 'windows' ? 'windows' : 'wsl']);
@@ -194,6 +198,7 @@ export class SessionService extends EventEmitter {
   }
 
   async create(projectId: string, kind: SessionKind, opts: { resumeClaudeId?: string } = {}): Promise<SessionInfo> {
+    const epoch = this.projectEpoch.get(projectId) ?? 0;
     const project = await this.project(projectId);
     const id = randomUUID();
     const rec: Record_ = {
@@ -207,7 +212,7 @@ export class SessionService extends EventEmitter {
     // Registra antes de iniciar: um exit imediato já encontra a sessão.
     this.deps.store.update((s) => void s.sessions.push(rec));
     try {
-      await this.start(id, project, kind, opts.resumeClaudeId);
+      await this.start(id, project, kind, epoch, opts.resumeClaudeId);
     } catch (e) {
       this.runtime.delete(id);
       this.deps.store.update((s) => {
@@ -231,8 +236,9 @@ export class SessionService extends EventEmitter {
     }
     this.starting.add(sessionId); // síncrono: o segundo resume concorrente perde
     try {
+      const epoch = this.projectEpoch.get(rec.projectId) ?? 0;
       const project = await this.project(rec.projectId);
-      await this.start(sessionId, project, rec.kind, rec.claudeSessionId);
+      await this.start(sessionId, project, rec.kind, epoch, rec.claudeSessionId);
     } finally {
       this.starting.delete(sessionId);
     }
@@ -252,7 +258,25 @@ export class SessionService extends EventEmitter {
     this.emitEvent({ type: 'session-removed', id });
   }
 
+  /** Encerra o processo da sessão mantendo o registro (parada, pode ser retomada). */
+  private stop(id: string): void {
+    const wasRunning = this.runtime.has(id);
+    this.runtime.delete(id); // antes do kill: o exit seguinte é ignorado
+    this.deps.watcher.unwatch(id);
+    this.deps.pty.kill(id);
+    this.deps.pty.forget(id);
+    if (wasRunning) this.emitSession(id);
+  }
+
+  /** Fechar a aba do projeto: encerra os processos, mas as sessões continuam listadas para "Retomar". */
   closeProject(projectId: string): void {
+    this.projectEpoch.set(projectId, (this.projectEpoch.get(projectId) ?? 0) + 1);
+    for (const s of this.list(projectId)) this.stop(s.id);
+  }
+
+  /** Remover o projeto do portal: encerra e apaga as sessões. */
+  removeProject(projectId: string): void {
+    this.projectEpoch.set(projectId, (this.projectEpoch.get(projectId) ?? 0) + 1);
     for (const s of this.list(projectId)) this.close(s.id);
   }
 

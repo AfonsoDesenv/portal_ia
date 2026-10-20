@@ -43,9 +43,12 @@ export const api = {
   projects: () => call<ProjectView[]>('GET', '/api/projects'),
   sessions: (projectId: string) => call<SessionInfo[]>('GET', `/api/projects/${encodeURIComponent(projectId)}/sessions`),
   getOpen: () => call<OpenState>('GET', '/api/open'),
-  /** Substitui AMBOS: sempre enviar activeProjectId (omitir limpa). */
-  putOpen: (openProjectIds: string[], activeProjectId: string | null) =>
-    call<OpenState>('PUT', '/api/open', { openProjectIds, activeProjectId }),
+  /** Só troca o projeto ativo (null limpa). Nunca abre nem fecha projetos. */
+  putOpen: (activeProjectId: string | null) => call<OpenState>('PUT', '/api/open', { activeProjectId }),
+  /** Abre (se preciso) e ativa o projeto. */
+  openProject: (id: string) => call<OpenState>('POST', `/api/projects/${encodeURIComponent(id)}/open`),
+  /** Fecha a aba do projeto: encerra os processos, as sessões ficam para "Retomar". */
+  closeProject: (id: string) => call<OpenState>('POST', `/api/projects/${encodeURIComponent(id)}/close`),
   environments: () => call<EnvironmentsInfo>('GET', '/api/environments'),
   ghStatus: (env: EnvId) => call<GhStatus>('GET', `/api/gh/status?env=${encodeURIComponent(env)}`),
   createProject: (b: { env: EnvId; name: string; baseDir: string; github: false | GithubOpts }) =>

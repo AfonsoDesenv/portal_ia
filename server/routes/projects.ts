@@ -9,7 +9,7 @@ import { erro, findProject, isEnvId, unknownProject } from './util.js';
 export interface ProjectRouteDeps {
   store: Store;
   projects: Pick<ProjectService, 'list' | 'create' | 'register' | 'createGitignore' | 'remove'>;
-  sessions: Pick<SessionService, 'closeProject'>;
+  sessions: Pick<SessionService, 'closeProject' | 'removeProject' | 'emitEvent'>;
   launchVsCode?: (p: Project) => void;
 }
 
@@ -32,6 +32,17 @@ function parseGithub(v: unknown): false | { owner?: string; private: boolean } {
 }
 
 export function registerProjectRoutes(app: FastifyInstance, d: ProjectRouteDeps): void {
+  const openState = () => {
+    const s = d.store.get();
+    return { openProjectIds: [...s.openProjectIds], activeProjectId: s.activeProjectId ?? null };
+  };
+  /** Devolve o estado de abas e avisa as outras janelas. */
+  const openChanged = () => {
+    const st = openState();
+    d.sessions.emitEvent({ type: 'open-changed', ...st });
+    return st;
+  };
+
   app.get('/api/projects', async () => d.projects.list());
 
   app.post<{ Body: { env?: unknown; name?: unknown; baseDir?: unknown; github?: unknown } }>('/api/projects', async (req, reply) => {
@@ -69,31 +80,57 @@ export function registerProjectRoutes(app: FastifyInstance, d: ProjectRouteDeps)
 
   app.delete<{ Params: { id: string } }>('/api/projects/:id', async (req, reply) => {
     if (!findProject(d.store, req.params.id)) return unknownProject(reply);
-    d.sessions.closeProject(req.params.id);
+    d.sessions.removeProject(req.params.id);
     d.projects.remove(req.params.id);
+    openChanged();
     return reply.code(204).send();
   });
 
-  app.get('/api/open', async () => {
-    const s = d.store.get();
-    return { openProjectIds: s.openProjectIds, activeProjectId: s.activeProjectId ?? null };
-  });
+  app.get('/api/open', async () => openState());
 
+  /**
+   * Só troca o projeto ativo (e, opcionalmente, a ordem das abas). Nunca abre nem fecha projetos:
+   * uma janela com lista desatualizada não pode encerrar sessões de outra.
+   */
   app.put<{ Body: { openProjectIds?: unknown; activeProjectId?: unknown } }>('/api/open', async (req, reply) => {
     const b = req.body ?? {};
-    if (!Array.isArray(b.openProjectIds) || !b.openProjectIds.every((x) => typeof x === 'string')) {
+    if (b.openProjectIds !== undefined && (!Array.isArray(b.openProjectIds) || !b.openProjectIds.every((x) => typeof x === 'string'))) {
       return erro(reply, 400, 'invalido', 'openProjectIds deve ser uma lista de ids');
     }
-    const open = b.openProjectIds as string[];
-    const active = typeof b.activeProjectId === 'string' ? b.activeProjectId : undefined;
-    const removed = d.store.get().openProjectIds.filter((x) => !open.includes(x));
-    for (const id of removed) d.sessions.closeProject(id);
+    const order = (b.openProjectIds as string[] | undefined) ?? [];
     d.store.update((s) => {
-      s.openProjectIds = open;
-      if (active) s.activeProjectId = active;
-      else delete s.activeProjectId;
+      const cur = s.openProjectIds;
+      s.openProjectIds = [...order.filter((x, i) => cur.includes(x) && order.indexOf(x) === i), ...cur.filter((x) => !order.includes(x))];
+      if (b.activeProjectId === null) delete s.activeProjectId;
+      else if (typeof b.activeProjectId === 'string' && cur.includes(b.activeProjectId)) s.activeProjectId = b.activeProjectId;
     });
-    return { openProjectIds: open, activeProjectId: active ?? null };
+    return openChanged();
+  });
+
+  app.post<{ Params: { id: string } }>('/api/projects/:id/open', async (req, reply) => {
+    const id = req.params.id;
+    if (!findProject(d.store, id)) return unknownProject(reply);
+    d.store.update((s) => {
+      if (!s.openProjectIds.includes(id)) s.openProjectIds.push(id);
+      s.activeProjectId = id;
+    });
+    return openChanged();
+  });
+
+  /** Fecha a aba do projeto: encerra os processos; as sessões ficam paradas para "Retomar". */
+  app.post<{ Params: { id: string } }>('/api/projects/:id/close', async (req, reply) => {
+    const id = req.params.id;
+    if (!findProject(d.store, id)) return unknownProject(reply);
+    d.sessions.closeProject(id);
+    d.store.update((s) => {
+      s.openProjectIds = s.openProjectIds.filter((x) => x !== id);
+      if (s.activeProjectId === id || (s.activeProjectId && !s.openProjectIds.includes(s.activeProjectId))) {
+        const last = s.openProjectIds[s.openProjectIds.length - 1];
+        if (last) s.activeProjectId = last;
+        else delete s.activeProjectId;
+      }
+    });
+    return openChanged();
   });
 
   app.post<{ Params: { id: string } }>('/api/projects/:id/vscode', async (req, reply) => {

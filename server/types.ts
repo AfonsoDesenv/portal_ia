@@ -12,4 +12,5 @@ export interface ExecResult { code: number; stdout: string; stderr: string; }
 export type ServerEvent =
   | { type: 'session'; session: SessionInfo }
   | { type: 'session-removed'; id: string }
-  | { type: 'git-changed'; projectId: string };
+  | { type: 'git-changed'; projectId: string }
+  | { type: 'open-changed'; openProjectIds: string[]; activeProjectId: string | null };

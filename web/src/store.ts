@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ProjectView, ServerEvent, SessionInfo, SessionStatus } from '@shared';
-import { api } from './api';
+import { api, type OpenState } from './api';
 
 export function aggregateStatus(s: SessionInfo[]): SessionStatus {
   if (s.some((x) => x.status === 'esperando')) return 'esperando';
@@ -39,8 +39,22 @@ export interface AppState {
 }
 
 export const useApp = create<AppState>((set, get) => {
-  const persist = (openIds: string[], activeId: string | null) =>
-    api.putOpen(openIds, activeId).catch(() => undefined);
+  const loadSessions = (id: string) =>
+    api.sessions(id).then((l) => set((s) => ({ sessions: { ...s.sessions, [id]: l } }))).catch(() => undefined);
+
+  /**
+   * Aplica o estado de abas do servidor. A janela mantém o próprio ativo enquanto ele seguir aberto
+   * (`keepActive`), senão adota o do servidor.
+   */
+  const applyOpen = (o: OpenState, keepActive: boolean) => {
+    const prev = get();
+    const openIds = o.openProjectIds;
+    const fallback = o.activeProjectId && openIds.includes(o.activeProjectId) ? o.activeProjectId : (openIds[openIds.length - 1] ?? null);
+    const activeId = keepActive && prev.activeId && openIds.includes(prev.activeId) ? prev.activeId : fallback;
+    set({ openIds, activeId });
+    for (const id of openIds) if (!prev.openIds.includes(id)) void loadSessions(id);
+    if (openIds.some((id) => !prev.projects.some((p) => p.id === id))) void get().refreshProjects().catch(() => undefined);
+  };
 
   return {
     projects: [],
@@ -75,22 +89,28 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     async openProject(id) {
-      const openIds = get().openIds.includes(id) ? get().openIds : [...get().openIds, id];
-      set({ openIds, activeId: id });
-      await persist(openIds, id);
-      api.sessions(id).then((l) => set((s) => ({ sessions: { ...s.sessions, [id]: l } }))).catch(() => undefined);
+      const wasOpen = get().openIds.includes(id);
+      set({ openIds: wasOpen ? get().openIds : [...get().openIds, id], activeId: id });
+      if (!wasOpen) void loadSessions(id);
+      try {
+        const o = await api.openProject(id);
+        applyOpen(o, true);
+      } catch { /* offline: estado local fica */ }
     },
 
     async activate(id) {
       set({ activeId: id });
-      await persist(get().openIds, id);
+      await api.putOpen(id).catch(() => undefined);
     },
 
     async closeProject(id) {
       const openIds = get().openIds.filter((x) => x !== id);
       const activeId = get().activeId === id ? (openIds[openIds.length - 1] ?? null) : get().activeId;
       set({ openIds, activeId });
-      await persist(openIds, activeId);
+      try {
+        const o = await api.closeProject(id);
+        applyOpen(o, true);
+      } catch { /* offline: estado local fica */ }
     },
 
     setMode(id, m) {
@@ -104,7 +124,9 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     applyEvent(e) {
-      if (e.type === 'git-changed') {
+      if (e.type === 'open-changed') {
+        applyOpen(e, true);
+      } else if (e.type === 'git-changed') {
         set((s) => ({ gitTick: { ...s.gitTick, [e.projectId]: (s.gitTick[e.projectId] ?? 0) + 1 } }));
       } else if (e.type === 'session') {
         const sess = e.session;

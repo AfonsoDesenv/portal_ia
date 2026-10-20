@@ -17,6 +17,7 @@ let config: Config;
 let store: Store;
 let app: FastifyInstance;
 let closed: string[];
+let removed: string[];
 let events: ServerEvent[];
 let pushError: Error | null;
 let commitError: Error | null;
@@ -40,6 +41,7 @@ beforeEach(() => {
     s.openProjectIds = ['p1', 'p2'];
   });
   closed = [];
+  removed = [];
   events = [];
   pushError = null;
   commitError = null;
@@ -58,6 +60,7 @@ beforeEach(() => {
     store,
     sessions: {
       closeProject: (id: string) => void closed.push(id),
+      removeProject: (id: string) => void removed.push(id),
       emitEvent: (e: ServerEvent) => void events.push(e),
     } as never,
     projects: {
@@ -181,11 +184,46 @@ describe('rotas de git', () => {
 });
 
 describe('rotas de projetos e ambiente', () => {
-  it('PUT /api/open sem o projeto p2 chama closeProject', async () => {
+  const p2: Project = { ...proj, id: 'p2', path: 'D:/y' };
+  const openChanged = () => events.filter((e) => e.type === 'open-changed');
+
+  it('PUT /api/open só troca o ativo: lista velha (outra janela) não fecha nada', async () => {
+    store.update((s) => void s.projects.push(p2));
     const r = await call('PUT', '/api/open', { openProjectIds: ['p1'], activeProjectId: 'p1' });
     expect(r.statusCode).toBe(200);
+    expect(closed).toEqual([]);
+    expect(r.json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
+    expect((await call('GET', '/api/open')).json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
+    expect(openChanged()).toEqual([{ type: 'open-changed', openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' }]);
+    // Ordem: reordena os abertos, sem adicionar nem remover.
+    const o = await call('PUT', '/api/open', { openProjectIds: ['p2', 'p1', 'zz'], activeProjectId: 'p2' });
+    expect(o.json()).toEqual({ openProjectIds: ['p2', 'p1'], activeProjectId: 'p2' });
+    // Ativo que não está aberto é ignorado.
+    expect((await call('PUT', '/api/open', { activeProjectId: 'zz' })).json().activeProjectId).toBe('p2');
+    expect((await call('PUT', '/api/open', { activeProjectId: null })).json().activeProjectId).toBeNull();
+    expect((await call('PUT', '/api/open', { openProjectIds: 'x' })).statusCode).toBe(400);
+  });
+
+  it('POST /api/projects/:id/open adiciona e ativa; /close fecha só aquele projeto', async () => {
+    store.update((s) => {
+      s.projects.push(p2);
+      s.openProjectIds = ['p1'];
+      s.activeProjectId = 'p1';
+    });
+    const o = await call('POST', '/api/projects/p2/open');
+    expect(o.statusCode).toBe(200);
+    expect(o.json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p2' });
+    expect((await call('POST', '/api/projects/p2/open')).json().openProjectIds).toEqual(['p1', 'p2']);
+    expect(closed).toEqual([]);
+    const c = await call('POST', '/api/projects/p2/close');
+    expect(c.statusCode).toBe(200);
     expect(closed).toEqual(['p2']);
-    expect((await call('GET', '/api/open')).json()).toEqual({ openProjectIds: ['p1'], activeProjectId: 'p1' });
+    expect(c.json()).toEqual({ openProjectIds: ['p1'], activeProjectId: 'p1' });
+    expect(openChanged().at(-1)).toEqual({ type: 'open-changed', openProjectIds: ['p1'], activeProjectId: 'p1' });
+    // Fechar o ativo cai para o último aberto; fechar o último deixa sem ativo.
+    expect((await call('POST', '/api/projects/p1/close')).json()).toEqual({ openProjectIds: [], activeProjectId: null });
+    expect((await call('POST', '/api/projects/zz/open')).statusCode).toBe(404);
+    expect((await call('POST', '/api/projects/zz/close')).statusCode).toBe(404);
   });
 
   it('POST /api/projects devolve project e warnings; register inexistente é 404', async () => {
@@ -204,6 +242,9 @@ describe('rotas de projetos e ambiente', () => {
   it('DELETE projeto desconhecido é 404', async () => {
     expect((await call('DELETE', '/api/projects/zzz')).statusCode).toBe(404);
     expect((await call('DELETE', '/api/projects/p1')).statusCode).toBe(204);
+    expect(removed).toEqual(['p1']);
+    expect(closed).toEqual([]);
+    expect(events.some((e) => e.type === 'open-changed')).toBe(true);
   });
 
   it('GET /api/environments devolve envs, roots e hints', async () => {

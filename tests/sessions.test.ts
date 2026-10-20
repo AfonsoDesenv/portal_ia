@@ -292,11 +292,43 @@ describe('SessionService', () => {
     expect(svc.list('p1')[0].alive).toBe(true);
   });
 
-  it('closeProject fecha todas as sessões do projeto', async () => {
+  it('closeProject encerra os processos mas mantém as sessões (paradas) para Retomar', async () => {
+    const events: ServerEvent[] = [];
+    svc.on('event', (e: ServerEvent) => events.push(e));
+    const a = await svc.create('p1', 'claude');
+    watcher.emit('claude-id', a.id, 'c1');
+    const b = await svc.create('p1', 'shell');
+    svc.closeProject('p1');
+    expect(pty.alive.size).toBe(0);
+    const l = svc.list('p1');
+    expect(l.map((s) => s.id).sort()).toEqual([a.id, b.id].sort());
+    expect(l.every((s) => !s.alive && s.status === 'parado')).toBe(true);
+    expect(events.some((e) => e.type === 'session-removed')).toBe(false);
+    expect(events.filter((e) => e.type === 'session' && !e.session.alive)).toHaveLength(2);
+    // Persistido: um serviço novo (reinício) também lista as sessões.
+    expect(make().list('p1')).toHaveLength(2);
+    // Reabrir: retomar funciona no mesmo id.
+    await expect(svc.resume(a.id)).resolves.toMatchObject({ id: a.id, alive: true });
+    expect(pty.spawns.at(-1)?.id).toBe(a.id);
+  });
+
+  it('closeProject durante um create em andamento não deixa processo vivo', async () => {
+    let release!: () => void;
+    toolsGate = new Promise<void>((r) => (release = r));
+    const p = svc.create('p1', 'claude');
+    await new Promise((r) => setTimeout(r, 0));
+    svc.closeProject('p1');
+    release();
+    await expect(p).rejects.toBeTruthy();
+    expect(pty.alive.size).toBe(0);
+  });
+
+  it('removeProject apaga as sessões do projeto', async () => {
     await svc.create('p1', 'claude');
     await svc.create('p1', 'shell');
-    svc.closeProject('p1');
+    svc.removeProject('p1');
     expect(svc.list('p1')).toHaveLength(0);
+    expect(pty.alive.size).toBe(0);
   });
 });
 
