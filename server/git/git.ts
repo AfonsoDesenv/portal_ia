@@ -1,9 +1,38 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ChangedFile, EnvId } from '../types.js';
 import type { Runner } from '../env/exec.js';
 
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+/** Acima disso, os não rastreados aparecem sem contagem de linhas (nada é lido). */
+export const MAX_UNTRACKED_COUNTED = 200;
+/** Não rastreado maior que isso não é lido (added 0). */
+export const MAX_UNTRACKED_BYTES = 1024 * 1024;
+/** Limite de caracteres dos caminhos por chamada no WSL (linha de comando do Windows ~32k). */
+const WSL_BATCH_CHARS = 16_000;
+
+/**
+ * Para cada arquivo (na ordem), imprime uma linha: número de linhas, `b` (binário) ou `x` (não lido:
+ * ausente, não regular ou maior que o limite). Um único processo `sh` para o lote inteiro.
+ */
+const COUNT_SCRIPT = String.raw`max=$1; shift
+for f do
+  if [ ! -f "$f" ]; then echo x; continue; fi
+  s=$(stat -c %s -- "$f" 2>/dev/null) || { echo x; continue; }
+  if [ "$s" -gt "$max" ]; then echo x; continue; fi
+  t=$(tr -d '\000' < "$f" | wc -c)
+  if [ "$t" -ne "$s" ]; then echo b; continue; fi
+  n=$(wc -l < "$f")
+  if [ "$s" -gt 0 ] && [ "$(tail -c 1 -- "$f" | wc -l)" -eq 0 ]; then n=$((n+1)); fi
+  echo $n
+done`;
+
+interface Counts { added: number; removed: number; binary: boolean }
+
+function countText(c: string): Counts {
+  if (c.includes('\0')) return { added: 0, removed: 0, binary: true };
+  return { added: c === '' ? 0 : c.split('\n').length - (c.endsWith('\n') ? 1 : 0), removed: 0, binary: false };
+}
 
 export class GitError extends Error {
   constructor(message: string) {
@@ -105,19 +134,50 @@ export class Git {
       const path = e.slice(3);
       let oldPath: string | undefined;
       if (index === 'R' || index === 'C' || worktree === 'R' || worktree === 'C') oldPath = t[++i];
-      let s = stats.get(path);
-      if (!s && index === '?' && worktree === '?') {
-        s = { added: 0, removed: 0, binary: false };
-        try {
-          const c = await this.readWorking(path);
-          if (c.includes('\0')) s.binary = true;
-          else s.added = c === '' ? 0 : c.split('\n').length - (c.endsWith('\n') ? 1 : 0);
-        } catch {
-          /* ilegível: mantém zeros */
-        }
-      }
-      s ??= { added: 0, removed: 0, binary: false };
+      const s = stats.get(path) ?? { added: 0, removed: 0, binary: false };
       out.push({ path, ...(oldPath ? { oldPath } : {}), index, worktree, ...s });
+    }
+    const untracked = out.filter((f) => f.index === '?' && f.worktree === '?');
+    if (untracked.length > 0 && untracked.length <= MAX_UNTRACKED_COUNTED) {
+      const counts = await this.countUntracked(untracked.map((f) => f.path));
+      untracked.forEach((f, i) => Object.assign(f, counts[i]));
+    }
+    return out;
+  }
+
+  /** Conta linhas dos não rastreados sem ler arquivos grandes; no WSL, um processo por lote. */
+  private async countUntracked(paths: string[]): Promise<Counts[]> {
+    const zero = (): Counts => ({ added: 0, removed: 0, binary: false });
+    if (this.env === 'windows') {
+      return Promise.all(
+        paths.map(async (p) => {
+          try {
+            const full = join(this.cwd, p);
+            const st = await stat(full);
+            if (!st.isFile() || st.size > MAX_UNTRACKED_BYTES) return zero();
+            return countText(await readFile(full, 'utf8'));
+          } catch {
+            return zero(); // ilegível: mantém zeros
+          }
+        }),
+      );
+    }
+    const out: Counts[] = [];
+    for (let i = 0; i < paths.length; ) {
+      const batch: string[] = [];
+      let len = 0;
+      while (i < paths.length && (batch.length === 0 || len + paths[i].length < WSL_BATCH_CHARS)) {
+        len += paths[i].length + 3;
+        batch.push(paths[i++]);
+      }
+      const r = await this.run(this.env, this.cwd, 'sh', ['-c', COUNT_SCRIPT, 'sh', String(MAX_UNTRACKED_BYTES), ...batch]);
+      const lines = r.code === 0 ? r.stdout.split('\n') : [];
+      batch.forEach((_, n) => {
+        const v = (lines[n] ?? '').trim();
+        if (v === 'b') out.push({ added: 0, removed: 0, binary: true });
+        else if (/^\d+$/.test(v)) out.push({ added: Number(v), removed: 0, binary: false });
+        else out.push(zero());
+      });
     }
     return out;
   }

@@ -97,6 +97,37 @@ describe('ChangesPanel', () => {
       expect(api.commit).toHaveBeenCalledWith('p1', { files: ['novo.ts', 'velho.ts'], message: 'renomeia', push: false }));
   });
 
+  it('não rastreado sem contagem mostra "novo"', async () => {
+    vi.mocked(api.gitStatus).mockResolvedValue({ branch: 'main', files: [f('grande.bin', { index: '?', worktree: '?', added: 0, removed: 0 })] });
+    render(<ChangesPanel projectId="p1" compact={false} />);
+    expect(await screen.findByText('novo')).toBeTruthy();
+  });
+
+  it('polling não dispara outro status enquanto um está em andamento; resposta velha não sobrescreve', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let resolveFirst!: (v: unknown) => void;
+      vi.mocked(api.gitStatus)
+        .mockImplementationOnce(() => new Promise((r) => (resolveFirst = r as never)))
+        .mockResolvedValue({ branch: 'main', files: [f('novo-estado.ts')] });
+      render(<ChangesPanel projectId="p1" compact={false} />);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Montagem + efeito de polling iniciam no máximo uma vez enquanto a primeira está pendente.
+      const pending = vi.mocked(api.gitStatus).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(vi.mocked(api.gitStatus).mock.calls.length).toBe(pending);
+      // Um git-changed força nova leitura (sequenciada); a antiga chega depois e é descartada.
+      useApp.setState({ gitTick: { p1: 1 } });
+      expect(await screen.findByText('novo-estado.ts')).toBeTruthy();
+      resolveFirst({ branch: 'main', files: [f('estado-velho.ts')] });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(screen.queryByText('estado-velho.ts')).toBeNull();
+      expect(screen.getByText('novo-estado.ts')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('seleção do usuário sobrevive a novo status; arquivos novos usam o padrão', async () => {
     render(<ChangesPanel projectId="p1" compact={false} />);
     await screen.findByText('app.ts');

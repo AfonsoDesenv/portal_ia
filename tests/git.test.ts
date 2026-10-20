@@ -128,6 +128,43 @@ describe('Git', () => {
     expect((await git.status()).map((f) => f.path)).toEqual(['a.txt']);
   });
 
+  it('mais de 200 arquivos não rastreados: não lê conteúdo (added 0)', async () => {
+    for (let i = 0; i < 201; i++) writeFileSync(join(dir, `f${i}.txt`), 'a\nb\n');
+    const st = await git.status();
+    expect(st).toHaveLength(201);
+    expect(st.every((f) => f.added === 0 && !f.binary && f.index === '?')).toBe(true);
+  });
+
+  it('arquivo não rastreado acima de 1 MB não é lido', async () => {
+    writeFileSync(join(dir, 'grande.txt'), 'x\n'.repeat(600_000));
+    writeFileSync(join(dir, 'pequeno.txt'), 'x\ny');
+    const st = await git.status();
+    expect(st.find((f) => f.path === 'grande.txt')).toMatchObject({ added: 0, binary: false });
+    expect(st.find((f) => f.path === 'pequeno.txt')).toMatchObject({ added: 2, binary: false });
+  });
+
+  it('WSL: conta linhas dos não rastreados com UM comando (sem um processo por arquivo)', async () => {
+    writeFileSync(join(dir, 'a b.txt'), 'x\n');
+    writeFileSync(join(dir, 'ação.md'), 'x\n');
+    writeFileSync(join(dir, 'bin.dat'), 'x\n');
+    writeFileSync(join(dir, 'grande.txt'), 'x\n');
+    const other: { cmd: string; args: string[] }[] = [];
+    const fake: typeof runIn = async (_env, cwd, cmd, args, opts) => {
+      if (cmd === 'git') return runIn('windows', cwd, cmd, args, opts);
+      other.push({ cmd, args });
+      // Resposta na ordem dos arquivos: linhas, "b" binário, "x" não lido.
+      const files = args.slice(4);
+      const ans: Record<string, string> = { 'a b.txt': '3', 'ação.md': '7', 'bin.dat': 'b', 'grande.txt': 'x' };
+      return { code: 0, stdout: files.map((f) => ans[f]).join('\n') + '\n', stderr: '' };
+    };
+    const st = await new Git(fake, 'wsl:Teste', dir).status();
+    expect(other).toHaveLength(1);
+    expect(other[0].cmd).toBe('sh');
+    expect(other[0].args.slice(0, 1)).toEqual(['-c']);
+    const by = Object.fromEntries(st.map((f) => [f.path, [f.added, f.binary]]));
+    expect(by).toEqual({ 'a b.txt': [3, false], 'ação.md': [7, false], 'bin.dat': [0, true], 'grande.txt': [0, false] });
+  });
+
   it('push sem remoto', async () => {
     writeFileSync(join(dir, 'a.txt'), 'a\n');
     await git.commit(['a.txt'], 'a');

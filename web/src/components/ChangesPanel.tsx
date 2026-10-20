@@ -41,9 +41,20 @@ export function ChangesPanel({ projectId, compact, activePath, onOpenFile, onFil
   const onFilesRef = useRef(onFiles);
   onFilesRef.current = onFiles;
 
-  const refresh = useCallback(async () => {
+  // Sequência das leituras: uma resposta mais velha que a última aplicada é descartada.
+  const seqRef = useRef(0);
+  const appliedRef = useRef(0);
+  const inFlightRef = useRef(0);
+
+  /** `poll`: tick do polling, pulado se já houver leitura em andamento. */
+  const refresh = useCallback(async (poll = false) => {
+    if (poll && inFlightRef.current > 0) return;
+    const seq = ++seqRef.current;
+    inFlightRef.current++;
     try {
       const st = await api.gitStatus(projectId);
+      if (seq < appliedRef.current) return;
+      appliedRef.current = seq;
       setFiles(st.files);
       setBranch(st.branch);
       setLoadError('');
@@ -53,7 +64,9 @@ export function ChangesPanel({ projectId, compact, activePath, onOpenFile, onFil
       const kept = Object.fromEntries(st.files.filter((f) => f.path in current).map((f) => [f.path, current[f.path]]));
       if (Object.keys(kept).length !== Object.keys(current).length) setSelection(projectId, kept);
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : String(e));
+      if (seq >= appliedRef.current) setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      inFlightRef.current--;
     }
   }, [projectId, setSelection]);
 
@@ -71,8 +84,8 @@ export function ChangesPanel({ projectId, compact, activePath, onOpenFile, onFil
   // Polling só com a aba visível e o projeto ativo.
   useEffect(() => {
     if (!visible || !isActive) return;
-    void refresh();
-    const t = setInterval(() => void refresh(), POLL_MS);
+    void refresh(true);
+    const t = setInterval(() => void refresh(true), POLL_MS);
     return () => clearInterval(t);
   }, [visible, isActive, refresh]);
 
@@ -119,7 +132,9 @@ export function ChangesPanel({ projectId, compact, activePath, onOpenFile, onFil
               <span className="change-name" title={f.path}>{f.path}</span>
             )}
             {f.oldPath && <span className="muted change-old">← {f.oldPath}</span>}
-            {f.binary ? <span className="muted">bin</span> : (
+            {f.binary ? <span className="muted">bin</span> : f.index === '?' && f.worktree === '?' && f.added === 0 ? (
+              <span className="muted">novo</span>
+            ) : (
               <span className="change-counts"><span className="add">+{f.added}</span> <span className="del">−{f.removed}</span></span>
             )}
           </li>
