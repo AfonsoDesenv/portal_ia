@@ -68,5 +68,8 @@ describe('detectTools', () => {
   });
   it('hints', () => {
     expect(INSTALL_HINTS.gh.windows).toBe('winget install GitHub.cli');
+    expect(INSTALL_HINTS.gh.wsl).toBe('sudo apt install gh');
+    expect(INSTALL_HINTS.claude.windows).toBe('irm https://claude.ai/install.ps1 | iex');
+    expect(INSTALL_HINTS.claude.wsl).toBe('curl -fsSL https://claude.ai/install.sh | bash');
   });
 });

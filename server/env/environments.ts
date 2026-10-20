@@ -3,7 +3,7 @@ import type { EnvId, EnvTools } from '../types.js';
 import { runIn, type Runner } from './exec.js';
 
 export const INSTALL_HINTS: Record<'claude' | 'gh', { windows: string; wsl: string }> = {
-  claude: { windows: 'npm install -g @anthropic-ai/claude-code', wsl: 'curl -fsSL https://claude.ai/install.sh | bash' },
+  claude: { windows: 'irm https://claude.ai/install.ps1 | iex', wsl: 'curl -fsSL https://claude.ai/install.sh | bash' },
   gh: { windows: 'winget install GitHub.cli', wsl: 'sudo apt install gh' },
 };
 
