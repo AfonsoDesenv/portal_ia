@@ -121,6 +121,59 @@ describe('ProjectService', () => {
     expect((await git(project.path, 'rev-list', '--count', 'HEAD')).stdout.trim()).toBe('1');
   });
 
+  it('create sem identidade git: 409 git-identidade antes de criar qualquer coisa', async () => {
+    const noIdent: typeof runIn = async (env, cwd, cmd, args, opts) => {
+      if (cmd === 'git' && args[0] === 'var') return { code: 128, stdout: '', stderr: 'Author identity unknown' };
+      return runIn(env, cwd, cmd, args, opts);
+    };
+    const s = new ProjectService({ store, run: noIdent, github: { createRepo } as unknown as GitHub, config: {} as Config });
+    const p = s.create({ env: 'windows', name: 'sem ident', baseDir: dir, github: { private: true } });
+    await expect(p).rejects.toMatchObject({ code: 'git-identidade' });
+    await expect(p).rejects.toThrow(/Configure git user\.name e user\.email no Windows: git config --global user\.name "Seu Nome" && git config --global user\.email voce@exemplo\.com/);
+    expect(existsSync(join(dir, 'sem ident'))).toBe(false);
+    expect(createRepo).not.toHaveBeenCalled();
+    expect(store.get().projects).toHaveLength(0);
+  });
+
+  it('create: commit inicial que falha mesmo assim registra o projeto com aviso', async () => {
+    const failCommit: typeof runIn = async (env, cwd, cmd, args, opts) => {
+      if (cmd === 'git' && args.includes('commit')) return { code: 1, stdout: '', stderr: 'hook recusou' };
+      return runIn(env, cwd, cmd, args, opts);
+    };
+    const s = new ProjectService({ store, run: failCommit, github: { createRepo } as unknown as GitHub, config: {} as Config });
+    const { project, warnings } = await s.create({ env: 'windows', name: 'falha commit', baseDir: dir, github: false });
+    expect(warnings).toEqual(['commit-inicial-falhou: hook recusou']);
+    expect(store.get().projects.map((x) => x.id)).toEqual([project.id]);
+    expect(existsSync(join(project.path, 'README.md'))).toBe(true);
+  });
+
+  it('register: falha do GitHub vira warning github-falhou e o projeto fica registrado', async () => {
+    const s = new ProjectService({
+      store, run: runIn,
+      github: { createRepo: async () => { throw new Error('sem rede'); } } as unknown as GitHub,
+      config: {} as Config,
+    });
+    const d = join(dir, 'reg gh');
+    mkdirSync(d);
+    const { project, warnings } = await s.register({ env: 'windows', path: d, github: { private: true } });
+    expect(warnings).toContain('github-falhou: sem rede');
+    expect(store.get().projects.map((x) => x.id)).toContain(project.id);
+    const d2 = join(dir, 'reg gh repo');
+    mkdirSync(d2);
+    await git(d2, 'init', '-b', 'main');
+    const r2 = await s.register({ env: 'windows', path: d2, github: { private: true } });
+    expect(r2.warnings).toContain('github-falhou: sem rede');
+    expect(store.get().projects).toHaveLength(2);
+  });
+
+  it('ProjectError tem code: inválido, não encontrado, conflito', async () => {
+    await expect(svc.create({ env: 'windows', name: 'a/b', baseDir: dir, github: false })).rejects.toMatchObject({ code: 'invalido' });
+    await expect(svc.register({ env: 'windows', path: join(dir, 'nada'), github: false })).rejects.toMatchObject({ code: 'nao-encontrado' });
+    await expect(svc.createGitignore('zz')).rejects.toMatchObject({ code: 'projeto-desconhecido' });
+    mkdirSync(join(dir, 'existe'));
+    await expect(svc.create({ env: 'windows', name: 'existe', baseDir: dir, github: false })).rejects.toMatchObject({ code: 'conflito' });
+  });
+
   it('register em repo sem origin com github chama createRepo, sem commit', async () => {
     const d = join(dir, 'sem origin');
     mkdirSync(d);
@@ -146,21 +199,22 @@ describe.skipIf(!hasWsl)('ProjectService em WSL', () => {
       config: { roots: { windows: dir, wsl: '~/git' } } as Config,
     });
     try {
-      // sem identidade git no WSL o commit falha: testa pasta + escrita + list
-      let project;
-      try {
-        ({ project } = await s.create({ env, name: 'meu projeto', baseDir: tmp, github: false }));
-      } catch {
-        project = undefined;
-      }
       const path = `${tmp}/meu projeto`;
+      const ident = (await runIn(env, null, 'git', ['var', 'GIT_AUTHOR_IDENT'])).code === 0
+        && (await runIn(env, null, 'git', ['var', 'GIT_COMMITTER_IDENT'])).code === 0;
+      if (!ident) {
+        // Sem identidade git no WSL: erro claro e nada é criado.
+        await expect(s.create({ env, name: 'meu projeto', baseDir: tmp, github: false }))
+          .rejects.toMatchObject({ code: 'git-identidade', message: expect.stringContaining('WSL (Ubuntu)') });
+        expect((await runIn(env, null, 'test', ['-e', path])).code).not.toBe(0);
+        return;
+      }
+      await s.create({ env, name: 'meu projeto', baseDir: tmp, github: false });
       expect((await runIn(env, null, 'test', ['-f', `${path}/README.md`])).code).toBe(0);
       expect((await runIn(env, null, 'test', ['-f', `${path}/.gitignore`])).code).toBe(0);
-      if (project) {
-        expect((await s.list())[0].missing).toBe(false);
-        await runIn(env, null, 'rm', ['-rf', '--', path]);
-        expect((await s.list())[0].missing).toBe(true);
-      }
+      expect((await s.list())[0].missing).toBe(false);
+      await runIn(env, null, 'rm', ['-rf', '--', path]);
+      expect((await s.list())[0].missing).toBe(true);
     } finally {
       await runIn(env, null, 'rm', ['-rf', '--', tmp]);
     }

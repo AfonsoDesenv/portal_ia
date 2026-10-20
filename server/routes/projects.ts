@@ -15,9 +15,8 @@ export interface ProjectRouteDeps {
 
 function fail(reply: FastifyReply, e: unknown) {
   if (e instanceof ProjectError) {
-    if (/inválido/.test(e.message)) return erro(reply, 400, 'invalido', e.message);
-    if (/não encontrad/.test(e.message)) return erro(reply, 404, 'nao-encontrado', e.message);
-    return erro(reply, 409, 'conflito', e.message);
+    const status = e.code === 'invalido' ? 400 : e.code === 'nao-encontrado' || e.code === 'projeto-desconhecido' ? 404 : 409;
+    return erro(reply, status, e.code, e.message);
   }
   throw e;
 }
@@ -70,6 +69,7 @@ export function registerProjectRoutes(app: FastifyInstance, d: ProjectRouteDeps)
   });
 
   app.post<{ Params: { id: string } }>('/api/projects/:id/gitignore', async (req, reply) => {
+    if (!findProject(d.store, req.params.id)) return unknownProject(reply);
     try {
       await d.projects.createGitignore(req.params.id);
       return { ok: true };

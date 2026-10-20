@@ -89,11 +89,13 @@ export function NewProjectDialog({ onClose, onCreated }: Props) {
   if (result) {
     const ghFail = result.warnings.find((w) => w.startsWith('github-falhou'));
     const noIgnore = result.warnings.includes('sem-gitignore');
+    const commitFail = result.warnings.find((w) => w.startsWith('commit-inicial-falhou'));
     return (
       <div className="overlay">
         <div className="modal dialog" role="dialog" aria-label="Projeto criado">
           <h2>Projeto adicionado</h2>
           <p>{result.project.name} foi adicionado ao portal.</p>
+          {commitFail && <p className="notice warn">O commit inicial falhou ({commitFail.replace(/^commit-inicial-falhou:\s*/, '')}). A pasta, o README e o .gitignore foram criados; faça o primeiro commit pelo painel de alterações.</p>}
           {ghFail && <p className="notice warn">Não foi possível criar o repositório no GitHub ({ghFail.replace(/^github-falhou:\s*/, '')}). O projeto local foi criado normalmente.</p>}
           {noIgnore && !ignoreDone && (
             <p className="notice">
@@ -109,7 +111,7 @@ export function NewProjectDialog({ onClose, onCreated }: Props) {
   }
 
   return (
-    <div className="overlay" onMouseDown={onClose}>
+    <div className="overlay" onMouseDown={() => { if (!busy) onClose(); }}>
       <form className="modal dialog" role="dialog" aria-label="Novo projeto" onSubmit={submit} onMouseDown={(e) => e.stopPropagation()}>
         <h2>Novo projeto</h2>
 
@@ -148,7 +150,7 @@ export function NewProjectDialog({ onClose, onCreated }: Props) {
 
         {gh && !gh.installed && (
           <p className="notice warn">
-            GitHub CLI não encontrado. Instale ({where}): <code>{ghHint}</code> e depois rode <code>gh auth login</code>.
+            GitHub CLI não encontrado. Instale ({where}): <code>{ghHint}</code> e depois rode <code>gh auth login</code> (reinicie o portal depois).
           </p>
         )}
         {gh && gh.installed && !gh.loggedIn && (
