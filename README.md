@@ -36,7 +36,7 @@ No Edge ou Chrome, abra o portal e use "Instalar app" (ícone na barra de endere
 
 ## Atalhos
 
-- `Ctrl+P`: busca rápida de arquivos do projeto.
+- `Ctrl+P`: busca de projeto.
 - `Ctrl+Shift+R`: alterna o modo Review.
 
 Funcionam também com o foco no terminal.
