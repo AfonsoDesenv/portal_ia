@@ -12,7 +12,7 @@ export interface Config {
 }
 
 const DEFAULT_PORT = 4317;
-const DEFAULT_ROOTS = { windows: 'C:\GIT', wsl: '~/git' };
+const DEFAULT_ROOTS = { windows: 'C:\\GIT', wsl: '~/git' };
 
 function defaultDataDir(): string {
   return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'portal-ia');

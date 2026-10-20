@@ -86,7 +86,7 @@ describe('loadConfig', () => {
     const b = loadConfig(dir);
     expect(a.token).toMatch(/^[0-9a-f]{64}$/);
     expect(b.token).toBe(a.token);
-    expect(a.roots).toEqual({ windows: 'C:\GIT', wsl: '~/git' });
+    expect(a.roots).toEqual({ windows: 'C:' + String.fromCharCode(92) + 'GIT', wsl: '~/git' });
     expect(a.port).toBe(4317);
     expect(a.dataDir).toBe(dir);
   });
