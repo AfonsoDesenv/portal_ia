@@ -26,6 +26,8 @@ export interface AppState {
   /** Rascunho da mensagem de commit por projeto (sobrevive à troca de modo). */
   draft: Record<string, string>;
   setDraft: (id: string, text: string) => void;
+  /** Última versão do estado de abas do servidor já aplicada (descarta avisos antigos). */
+  openVersion: number;
   loaded: boolean;
   load: () => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -56,6 +58,41 @@ export const useApp = create<AppState>((set, get) => {
     if (openIds.some((id) => !prev.projects.some((p) => p.id === id))) void get().refreshProjects().catch(() => undefined);
   };
 
+  /** Aplica um estado do servidor só se for mais novo que o último aplicado. */
+  const applyServerOpen = (o: OpenState) => {
+    if (o.version <= get().openVersion) return;
+    set({ openVersion: o.version });
+    applyOpen(o, true);
+  };
+
+  // Enquanto esta janela tem um pedido de abas em andamento, os avisos que chegam são guardados
+  // (só o mais novo) e aplicados junto com a resposta: um aviso de antes do pedido não desfaz a
+  // mudança otimista que a janela já mostrou.
+  let pendingOpen = 0;
+  let bufferedOpen: OpenState | null = null;
+  const newerOpen = (a: OpenState | null, b: OpenState | null) => (!a ? b : !b ? a : b.version > a.version ? b : a);
+  const receiveOpen = (o: OpenState) => {
+    if (pendingOpen > 0) bufferedOpen = newerOpen(bufferedOpen, o);
+    else applyServerOpen(o);
+  };
+  const mutateOpen = async (req: () => Promise<OpenState>) => {
+    pendingOpen++;
+    let res: OpenState | null = null;
+    try {
+      res = await req();
+    } catch {
+      /* offline: estado local fica */
+    } finally {
+      pendingOpen--;
+    }
+    bufferedOpen = newerOpen(bufferedOpen, res);
+    if (pendingOpen === 0 && bufferedOpen) {
+      const o = bufferedOpen;
+      bufferedOpen = null;
+      applyServerOpen(o);
+    }
+  };
+
   return {
     projects: [],
     openIds: [],
@@ -72,6 +109,7 @@ export const useApp = create<AppState>((set, get) => {
     setSelection(id, sel) {
       set((s) => ({ selection: { ...s.selection, [id]: sel } }));
     },
+    openVersion: -1,
     loaded: false,
 
     async load() {
@@ -79,7 +117,8 @@ export const useApp = create<AppState>((set, get) => {
       const ids = new Set(projects.map((p) => p.id));
       const openIds = open.openProjectIds.filter((i) => ids.has(i));
       const activeId = open.activeProjectId && openIds.includes(open.activeProjectId) ? open.activeProjectId : null;
-      set({ projects, openIds, activeId, loaded: true });
+      // Recarga (ex.: reconexão após reinício do servidor): adota a versão atual sem comparar.
+      set({ projects, openIds, activeId, openVersion: open.version, loaded: true });
       const lists = await Promise.all(openIds.map((i) => api.sessions(i).catch(() => [] as SessionInfo[])));
       set({ sessions: Object.fromEntries(openIds.map((i, n) => [i, lists[n]])) });
     },
@@ -92,25 +131,19 @@ export const useApp = create<AppState>((set, get) => {
       const wasOpen = get().openIds.includes(id);
       set({ openIds: wasOpen ? get().openIds : [...get().openIds, id], activeId: id });
       if (!wasOpen) void loadSessions(id);
-      try {
-        const o = await api.openProject(id);
-        applyOpen(o, true);
-      } catch { /* offline: estado local fica */ }
+      await mutateOpen(() => api.openProject(id));
     },
 
     async activate(id) {
       set({ activeId: id });
-      await api.putOpen(id).catch(() => undefined);
+      await mutateOpen(() => api.putOpen(id));
     },
 
     async closeProject(id) {
       const openIds = get().openIds.filter((x) => x !== id);
       const activeId = get().activeId === id ? (openIds[openIds.length - 1] ?? null) : get().activeId;
       set({ openIds, activeId });
-      try {
-        const o = await api.closeProject(id);
-        applyOpen(o, true);
-      } catch { /* offline: estado local fica */ }
+      await mutateOpen(() => api.closeProject(id));
     },
 
     setMode(id, m) {
@@ -125,7 +158,7 @@ export const useApp = create<AppState>((set, get) => {
 
     applyEvent(e) {
       if (e.type === 'open-changed') {
-        applyOpen(e, true);
+        receiveOpen(e);
       } else if (e.type === 'git-changed') {
         set((s) => ({ gitTick: { ...s.gitTick, [e.projectId]: (s.gitTick[e.projectId] ?? 0) + 1 } }));
       } else if (e.type === 'session') {

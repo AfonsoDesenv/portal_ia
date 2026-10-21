@@ -37,11 +37,13 @@ export class PtyManager extends EventEmitter {
     entry.scrollback = '';
     entry.exited = false;
     this.entries.set(id, entry);
+    // Só o processo atual do id conta: depois de forget + novo spawn, eventos do antigo são ignorados.
+    const current = () => entry.proc === proc && this.entries.get(id) === entry;
     proc.onData((d) => {
-      if (entry.proc === proc) this.push(entry, d);
+      if (current()) this.push(entry, d);
     });
     proc.onExit(({ exitCode }) => {
-      if (entry.proc !== proc) return;
+      if (!current()) return;
       entry.exited = true;
       this.emit('exit', id, exitCode);
     });

@@ -9,8 +9,10 @@ export interface ChangedFile { path: string; oldPath?: string; index: string; wo
   added: number; removed: number; binary: boolean; }
 export interface EnvTools { env: EnvId; git: boolean; claude: boolean; gh: boolean; ghLoggedIn: boolean; }
 export interface ExecResult { code: number; stdout: string; stderr: string; }
+/** Abas abertas. `version` cresce a cada mudança (reinicia com o servidor). */
+export interface OpenState { openProjectIds: string[]; activeProjectId: string | null; version: number; }
 export type ServerEvent =
   | { type: 'session'; session: SessionInfo }
   | { type: 'session-removed'; id: string }
   | { type: 'git-changed'; projectId: string }
-  | { type: 'open-changed'; openProjectIds: string[]; activeProjectId: string | null };
+  | ({ type: 'open-changed' } & OpenState);

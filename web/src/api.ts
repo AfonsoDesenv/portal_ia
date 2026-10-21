@@ -1,4 +1,4 @@
-import type { ChangedFile, EnvId, EnvTools, Project, ProjectView, SessionInfo, SessionKind } from '@shared';
+import type { ChangedFile, EnvId, EnvTools, OpenState, Project, ProjectView, SessionInfo, SessionKind } from '@shared';
 
 export interface EnvironmentsInfo {
   envs: EnvTools[];
@@ -8,7 +8,7 @@ export interface EnvironmentsInfo {
 export interface GhStatus { installed: boolean; loggedIn: boolean; user: string | null; orgs: string[] }
 export interface GithubOpts { owner?: string; private: boolean }
 export interface CreateResult { project: Project; warnings: string[] }
-export interface OpenState { openProjectIds: string[]; activeProjectId: string | null }
+export type { OpenState };
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: Record<string, unknown> = {}) {

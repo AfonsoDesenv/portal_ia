@@ -208,16 +208,28 @@ describe('rotas de projetos e ambiente', () => {
     const r = await call('PUT', '/api/open', { openProjectIds: ['p1'], activeProjectId: 'p1' });
     expect(r.statusCode).toBe(200);
     expect(closed).toEqual([]);
-    expect(r.json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
-    expect((await call('GET', '/api/open')).json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
-    expect(openChanged()).toEqual([{ type: 'open-changed', openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' }]);
+    expect(r.json()).toMatchObject({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
+    expect((await call('GET', '/api/open')).json()).toMatchObject({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' });
+    expect(openChanged()).toMatchObject([{ type: 'open-changed', openProjectIds: ['p1', 'p2'], activeProjectId: 'p1' }]);
     // Ordem: reordena os abertos, sem adicionar nem remover.
     const o = await call('PUT', '/api/open', { openProjectIds: ['p2', 'p1', 'zz'], activeProjectId: 'p2' });
-    expect(o.json()).toEqual({ openProjectIds: ['p2', 'p1'], activeProjectId: 'p2' });
+    expect(o.json()).toMatchObject({ openProjectIds: ['p2', 'p1'], activeProjectId: 'p2' });
     // Ativo que não está aberto é ignorado.
     expect((await call('PUT', '/api/open', { activeProjectId: 'zz' })).json().activeProjectId).toBe('p2');
     expect((await call('PUT', '/api/open', { activeProjectId: null })).json().activeProjectId).toBeNull();
     expect((await call('PUT', '/api/open', { openProjectIds: 'x' })).statusCode).toBe(400);
+  });
+
+  it('estado de abas tem versão crescente; o evento leva a mesma versão da resposta', async () => {
+    store.update((s) => void s.projects.push(p2));
+    const v0 = (await call('GET', '/api/open')).json().version;
+    expect(typeof v0).toBe('number');
+    const a = (await call('POST', '/api/projects/p2/open')).json();
+    const b = (await call('PUT', '/api/open', { activeProjectId: 'p1' })).json();
+    expect(a.version).toBeGreaterThan(v0);
+    expect(b.version).toBeGreaterThan(a.version);
+    expect(openChanged().map((e) => (e as { version: number }).version)).toEqual([a.version, b.version]);
+    expect((await call('GET', '/api/open')).json().version).toBe(b.version);
   });
 
   it('POST /api/projects/:id/open adiciona e ativa; /close fecha só aquele projeto', async () => {
@@ -228,16 +240,16 @@ describe('rotas de projetos e ambiente', () => {
     });
     const o = await call('POST', '/api/projects/p2/open');
     expect(o.statusCode).toBe(200);
-    expect(o.json()).toEqual({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p2' });
+    expect(o.json()).toMatchObject({ openProjectIds: ['p1', 'p2'], activeProjectId: 'p2' });
     expect((await call('POST', '/api/projects/p2/open')).json().openProjectIds).toEqual(['p1', 'p2']);
     expect(closed).toEqual([]);
     const c = await call('POST', '/api/projects/p2/close');
     expect(c.statusCode).toBe(200);
     expect(closed).toEqual(['p2']);
-    expect(c.json()).toEqual({ openProjectIds: ['p1'], activeProjectId: 'p1' });
-    expect(openChanged().at(-1)).toEqual({ type: 'open-changed', openProjectIds: ['p1'], activeProjectId: 'p1' });
+    expect(c.json()).toMatchObject({ openProjectIds: ['p1'], activeProjectId: 'p1' });
+    expect(openChanged().at(-1)).toMatchObject({ type: 'open-changed', openProjectIds: ['p1'], activeProjectId: 'p1' });
     // Fechar o ativo cai para o último aberto; fechar o último deixa sem ativo.
-    expect((await call('POST', '/api/projects/p1/close')).json()).toEqual({ openProjectIds: [], activeProjectId: null });
+    expect((await call('POST', '/api/projects/p1/close')).json()).toMatchObject({ openProjectIds: [], activeProjectId: null });
     expect((await call('POST', '/api/projects/zz/open')).statusCode).toBe(404);
     expect((await call('POST', '/api/projects/zz/close')).statusCode).toBe(404);
   });

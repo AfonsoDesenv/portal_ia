@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Store } from '../store/store.js';
 import { ProjectError, type ProjectService } from '../projects/projects.js';
 import type { SessionService } from '../sessions/sessions.js';
-import type { Project } from '../types.js';
+import type { OpenState, Project } from '../types.js';
 import { launchVsCode } from '../vscode.js';
 import { erro, findProject, isEnvId, unknownProject } from './util.js';
 
@@ -31,12 +31,14 @@ function parseGithub(v: unknown): false | { owner?: string; private: boolean } {
 }
 
 export function registerProjectRoutes(app: FastifyInstance, d: ProjectRouteDeps): void {
-  const openState = () => {
+  let openVersion = 0;
+  const openState = (): OpenState => {
     const s = d.store.get();
-    return { openProjectIds: [...s.openProjectIds], activeProjectId: s.activeProjectId ?? null };
+    return { openProjectIds: [...s.openProjectIds], activeProjectId: s.activeProjectId ?? null, version: openVersion };
   };
-  /** Devolve o estado de abas e avisa as outras janelas. */
+  /** Devolve o estado de abas (com nova versão) e avisa as outras janelas. */
   const openChanged = () => {
+    openVersion++;
     const st = openState();
     d.sessions.emitEvent({ type: 'open-changed', ...st });
     return st;

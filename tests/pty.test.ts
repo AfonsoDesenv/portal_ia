@@ -66,6 +66,23 @@ describe('PtyManager', () => {
     expect(chunks.join('') + m.attach('b', () => {}).scrollback).toContain('ola');
   });
 
+  it('exit tardio de um processo esquecido não afeta o processo novo do mesmo id', async () => {
+    const m = new PtyManager();
+    const exits: string[] = [];
+    m.on('exit', (id) => exits.push(id));
+    m.spawn('r', { file: 'cmd.exe', args: ['/k'] }, process.cwd());
+    m.kill('r');
+    m.forget('r');
+    // "Retomar" rápido: novo processo com o mesmo id antes do exit do antigo chegar.
+    m.spawn('r', { file: 'cmd.exe', args: ['/k'] }, process.cwd());
+    await new Promise((res) => setTimeout(res, 1500));
+    expect(exits).toEqual([]);
+    expect(m.isAlive('r')).toBe(true);
+    const exited = wait(m);
+    m.kill('r');
+    expect((await exited).id).toBe('r');
+  });
+
   it('limita scrollback a 2 MB mantendo o final', async () => {
     const m = new PtyManager();
     const exited = wait(m);
