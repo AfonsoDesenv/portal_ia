@@ -46,7 +46,7 @@ describe('NewProjectDialog', () => {
     const box = screen.getByLabelText(/Criar repositório no GitHub/) as HTMLInputElement;
     expect(box.checked).toBe(false);
     expect(screen.getByText(/gh auth login/)).toBeTruthy();
-    expect(screen.getByText(/reinicie o portal depois/)).toBeTruthy();
+    expect(screen.getByText(/feche e abra este diálogo de novo/)).toBeTruthy();
   });
 
   const fillAndSubmit = async () => {
