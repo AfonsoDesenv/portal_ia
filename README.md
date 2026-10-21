@@ -12,7 +12,7 @@ Portal local (PWA) para gerenciar projetos de programação com IA no Windows e 
 | `claude` | `irm https://claude.ai/install.ps1 \| iex` | `curl -fsSL https://claude.ai/install.sh \| bash` |
 | `gh` | `winget install GitHub.cli` | `sudo apt install gh` |
 
-- **Depois de instalar `gh` ou `claude`, reinicie o portal**: o servidor só enxerga o PATH novo ao ser reiniciado.
+- **Depois de instalar `gh` ou `claude` no Windows não é preciso reiniciar o portal**: ele relê o PATH do Windows sozinho (no máximo a cada 10 s). Basta reabrir o diálogo ou tentar de novo.
 - Em cada ambiente, faça login no GitHub: `gh auth login`.
 - Em cada ambiente, configure a identidade do git (necessária para o commit inicial dos projetos novos):
 

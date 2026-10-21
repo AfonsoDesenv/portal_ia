@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { EnvId, ExecResult } from '../types.js';
+import { refreshWindowsPath } from './winpath.js';
 
 export type Runner = (
   env: EnvId,
@@ -9,7 +10,13 @@ export type Runner = (
   opts?: { input?: string; timeoutMs?: number },
 ) => Promise<ExecResult>;
 
-export const runIn: Runner = (env, cwd, cmd, args, opts) =>
+export const runIn: Runner = async (env, cwd, cmd, args, opts) => {
+  // Ferramentas instaladas depois que o portal abriu (gh, claude) passam a ser encontradas.
+  if (env === 'windows') await refreshWindowsPath();
+  return execIn(env, cwd, cmd, args, opts);
+};
+
+const execIn: Runner = (env, cwd, cmd, args, opts) =>
   new Promise((resolve) => {
     let file = cmd;
     let fileArgs = args;

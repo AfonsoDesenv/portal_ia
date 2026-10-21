@@ -150,7 +150,7 @@ export function NewProjectDialog({ onClose, onCreated }: Props) {
 
         {gh && !gh.installed && (
           <p className="notice warn">
-            GitHub CLI não encontrado. Instale ({where}): <code>{ghHint}</code> e depois rode <code>gh auth login</code> (reinicie o portal depois).
+            GitHub CLI não encontrado. Instale ({where}): <code>{ghHint}</code> e depois rode <code>gh auth login</code> (depois feche e abra este diálogo de novo).
           </p>
         )}
         {gh && gh.installed && !gh.loggedIn && (

@@ -15,7 +15,7 @@ export function ToolMissingPanel({ info, onDismiss }: { info: ToolMissing; onDis
   return (
     <div className="tool-missing">
       <h3>`{info.ferramenta}` não está instalado neste ambiente</h3>
-      <p>Rode {where} (reinicie o portal depois):</p>
+      <p>Rode {where} e depois tente de novo:</p>
       <code>{info.dica}</code>
       <div className="actions">
         <button className="btn primary" onClick={copy}>{copied ? 'Copiado' : 'copiar comando'}</button>
